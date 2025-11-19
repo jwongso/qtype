@@ -14,7 +14,9 @@
 #include <QComboBox>
 #include <QDateTime>
 #include <QThread>
+#include <QCheckBox>
 #include <cmath>
+#include <climits>
 
 #ifdef Q_OS_LINUX
 #include <QProcess>
@@ -43,7 +45,7 @@ public:
         applyProfile(0);
     }
 
-    ~AutoTyper() {
+    ~AutoTyper() override {
         releaseAllKeys();
     }
 
@@ -54,19 +56,31 @@ protected:
     }
 
 private:
-    // UI
-    QPlainTextEdit *textEdit;
-    QPushButton *startButton;
-    QPushButton *stopButton;
-    QLabel *statusLabel;
-    QSpinBox *minDelaySpinBox;
-    QSpinBox *maxDelaySpinBox;
-    QComboBox *profileCombo;
+    // === UI ===
+    QPlainTextEdit *textEdit = nullptr;
+    QPushButton *startButton = nullptr;
+    QPushButton *stopButton = nullptr;
+    QLabel *statusLabel = nullptr;
+    QSpinBox *minDelaySpinBox = nullptr;
+    QSpinBox *maxDelaySpinBox = nullptr;
+    QComboBox *profileCombo = nullptr;
 
-    // Runtime
-    QTimer *typingTimer;
-    QTimer *countdownTimer;
-    QTimer *watchdog;
+    // Human Imperfection controls
+    QCheckBox *typoCheck = nullptr;
+    QSpinBox  *typoMinSpin = nullptr;
+    QSpinBox  *typoMaxSpin = nullptr;
+
+    QCheckBox *doubleCheck = nullptr;
+    QSpinBox  *doubleMinSpin = nullptr;
+    QSpinBox  *doubleMaxSpin = nullptr;
+
+    QCheckBox *autoCorrectCheck = nullptr;
+    QSpinBox  *autoCorrectProbSpin = nullptr;
+
+    // === Runtime ===
+    QTimer *typingTimer = nullptr;
+    QTimer *countdownTimer = nullptr;
+    QTimer *watchdog = nullptr;
 
     QString textToType;
     int currentIndex = 0;
@@ -74,12 +88,11 @@ private:
     bool isTyping = false;
     qint64 lastActionTime = 0;
 
-    // Advanced timing state
+    // Timing / dynamics state
     QChar previousChar;
     double rhythmPhase = 0.0;
     int wordsSinceBreak = 0;
 
-    // Humanization
     int burstRemaining = 0;
     double fatigueFactor = 1.0;
 
@@ -90,33 +103,53 @@ private:
         double burstProb = 0.14;
         int burstMin = 2;
         int burstMax = 6;
-        
+
         double gammaShape = 2.0;
         double gammaScale = 1.0;
         double noiseLevel = 0.15;
     } profile;
 
-    // ---------- ADVANCED RANDOM DISTRIBUTIONS --------------------------------
+    struct ImperfectionSettings {
+        bool enableTypos = true;
+        int typoMin = 300;
+        int typoMax = 500;
+
+        bool enableDoubleKeys = true;
+        int doubleMin = 250;
+        int doubleMax = 400;
+
+        bool enableAutoCorrection = true;
+        int correctionProbability = 15; // %
+    } imperfections;
+
+    // Counters for imperfections
+    int charsTypedTotal = 0;
+    int charsSinceLastTypo = 0;
+    int charsSinceLastDouble = 0;
+    int nextTypoAt = INT_MAX;
+    int nextDoubleAt = INT_MAX;
+
+    // ---------- RANDOM HELPERS ----------------------------------------------
 
     double gammaRandom(double shape, double scale) {
         if (shape < 1.0) {
-            return gammaRandom(1.0 + shape, scale) * 
+            return gammaRandom(1.0 + shape, scale) *
                    std::pow(QRandomGenerator::global()->generateDouble(), 1.0 / shape);
         }
-        
-        double d = shape - 1.0 / 3.0;
-        double c = 1.0 / std::sqrt(9.0 * d);
-        
+
+        const double d = shape - 1.0 / 3.0;
+        const double c = 1.0 / std::sqrt(9.0 * d);
+
         while (true) {
             double x, v;
             do {
                 x = normalRandom(0.0, 1.0);
                 v = 1.0 + c * x;
             } while (v <= 0.0);
-            
+
             v = v * v * v;
-            double u = QRandomGenerator::global()->generateDouble();
-            
+            const double u = QRandomGenerator::global()->generateDouble();
+
             if (u < 1.0 - 0.0331 * x * x * x * x) {
                 return d * v * scale;
             }
@@ -129,86 +162,88 @@ private:
     double normalRandom(double mean, double stddev) {
         static bool hasSpare = false;
         static double spare;
-        
+
         if (hasSpare) {
             hasSpare = false;
             return mean + stddev * spare;
         }
-        
-        hasSpare = true;
+
         double u, v, s;
         do {
             u = QRandomGenerator::global()->generateDouble() * 2.0 - 1.0;
             v = QRandomGenerator::global()->generateDouble() * 2.0 - 1.0;
             s = u * u + v * v;
         } while (s >= 1.0 || s == 0.0);
-        
+
         s = std::sqrt(-2.0 * std::log(s) / s);
         spare = v * s;
+        hasSpare = true;
+
         return mean + stddev * u * s;
     }
 
     double rhythmicVariation() {
         rhythmPhase += 0.03;
-        double rhythm = std::sin(rhythmPhase) * 0.5 + 0.5;
-        return 0.85 + rhythm * 0.3;
+        const double rhythm = std::sin(rhythmPhase) * 0.5 + 0.5; // [0,1]
+        return 0.85 + rhythm * 0.3;                              // [0.85,1.15]
     }
 
     double digraphFactor(QChar prev, QChar curr) {
-        QString digraph = QString(prev) + QString(curr);
-        
-        static const QStringList fast = {"th", "he", "in", "er", "an", "re", "on", "at", "en", "nd"};
+        const QString digraph = QString(prev) + QString(curr);
+        static const QStringList fast = {"th","he","in","er","an","re","on","at","en","nd"};
+
         if (fast.contains(digraph.toLower())) {
-            return 0.75;
+            return 0.75; // Faster
         }
-        
-        if ((prev == 'q' && curr == 'z') || 
+
+        if ((prev == 'q' && curr == 'z') ||
             (prev == 'z' && curr == 'q') ||
             (prev == 'p' && curr == 'q')) {
-            return 1.4;
+            return 1.4; // Slower
         }
-        
-        static const QString leftHand = "qwertasdfgzxcvb";
+
+        static const QString leftHand  = "qwertasdfgzxcvb";
         static const QString rightHand = "yuiophjklnm";
-        
-        bool bothLeft = leftHand.contains(prev.toLower()) && leftHand.contains(curr.toLower());
-        bool bothRight = rightHand.contains(prev.toLower()) && rightHand.contains(curr.toLower());
-        
+
+        const bool bothLeft  = leftHand.contains(prev.toLower())  && leftHand.contains(curr.toLower());
+        const bool bothRight = rightHand.contains(prev.toLower()) && rightHand.contains(curr.toLower());
+
         if (bothLeft || bothRight) {
             return 1.08;
         }
-        
+
         return 1.0;
     }
 
     int randomRange(int a, int b) {
-        return QRandomGenerator::global()->bounded(a, b+1);
+        if (a > b) std::swap(a, b);
+        return QRandomGenerator::global()->bounded(a, b + 1);
     }
 
-    // ---------- SETUP UI -----------------------------------------------------
+    // ---------- UI -----------------------------------------------------------
 
     void setupUI() {
-        setWindowTitle("Auto Typer - Advanced Timing");
-        setMinimumSize(700, 450);
+        setWindowTitle("qtype - Advanced Typing Automation");
+        setMinimumSize(780, 520);
 
         QWidget *central = new QWidget(this);
         QVBoxLayout *mainLayout = new QVBoxLayout(central);
 
         auto *instructions = new QLabel(
-            "🔬 Advanced Keystroke Dynamics Evasion\n"
-            "• Gamma distribution timing (not uniform random)\n"
-            "• Digraph correlation (common pairs typed faster)\n"
-            "• Natural rhythm variations (sine wave modulation)\n"
-            "• Variable key hold times (40-180ms)\n"
-            "• Statistical noise to break pattern detection"
+            "Human-like typing automation\n"
+            "• Non-uniform timing (gamma distribution)\n"
+            "• Digraph-based timing variation\n"
+            "• Natural rhythm + fatigue over long texts\n"
+            "• Optional occasional typos/double-keys with possible self-correction"
         );
         instructions->setWordWrap(true);
         instructions->setStyleSheet("padding: 10px; background-color:#fff3cd; font-size: 11px;");
         mainLayout->addWidget(instructions);
 
-        // Profile + delays
+        // Top layout: profile + delay + imperfections
         QHBoxLayout *topLayout = new QHBoxLayout();
 
+        // Profile box
         QGroupBox *profileGroup = new QGroupBox("Timing Profile");
         QVBoxLayout *profileLayout = new QVBoxLayout(profileGroup);
 
@@ -225,34 +260,140 @@ private:
         profileLayout->addWidget(profileCombo);
         topLayout->addWidget(profileGroup);
 
+        // Delay box
         QGroupBox *delayGroup = new QGroupBox("Base Delay Range");
         QHBoxLayout *delayLayout = new QHBoxLayout(delayGroup);
 
         QLabel *minLabel = new QLabel("Min:", this);
         minDelaySpinBox = new QSpinBox(this);
         minDelaySpinBox->setRange(5, 5000);
-        minDelaySpinBox->setValue(80);
+        minDelaySpinBox->setValue(120);
         minDelaySpinBox->setSuffix(" ms");
 
         QLabel *maxLabel = new QLabel("Max:", this);
         maxDelaySpinBox = new QSpinBox(this);
         maxDelaySpinBox->setRange(5, 5000);
-        maxDelaySpinBox->setValue(180);
+        maxDelaySpinBox->setValue(2000);
         maxDelaySpinBox->setSuffix(" ms");
+
+        connect(minDelaySpinBox, QOverload<int>::of(&QSpinBox::valueChanged),
+                this, [this](int v) {
+                    if (v > maxDelaySpinBox->value())
+                        maxDelaySpinBox->setValue(v);
+                });
+        connect(maxDelaySpinBox, QOverload<int>::of(&QSpinBox::valueChanged),
+                this, [this](int v) {
+                    if (v < minDelaySpinBox->value())
+                        minDelaySpinBox->setValue(v);
+                });
 
         delayLayout->addWidget(minLabel);
         delayLayout->addWidget(minDelaySpinBox);
-        delayLayout->addSpacing(20);
+        delayLayout->addSpacing(10);
         delayLayout->addWidget(maxLabel);
         delayLayout->addWidget(maxDelaySpinBox);
         topLayout->addWidget(delayGroup);
 
+        // Human imperfections box
+        QGroupBox *imperfGroup = new QGroupBox("Human Imperfections");
+        QVBoxLayout *imperfLayout = new QVBoxLayout(imperfGroup);
+
+        // Typos row
+        QHBoxLayout *typoLayout = new QHBoxLayout();
+        typoCheck = new QCheckBox("Neighbor-key typos", this);
+        typoCheck->setChecked(true);
+        QLabel *typoFreqLabel = new QLabel("every", this);
+        typoMinSpin = new QSpinBox(this);
+        typoMinSpin->setRange(50, 10000);
+        typoMinSpin->setValue(300);
+        QLabel *typoDash = new QLabel("–", this);
+        typoMaxSpin = new QSpinBox(this);
+        typoMaxSpin->setRange(50, 10000);
+        typoMaxSpin->setValue(500);
+        QLabel *typoChars = new QLabel("chars", this);
+
+        connect(typoMinSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+                this, [this](int v) {
+                    if (v > typoMaxSpin->value())
+                        typoMaxSpin->setValue(v);
+                });
+        connect(typoMaxSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+                this, [this](int v) {
+                    if (v < typoMinSpin->value())
+                        typoMinSpin->setValue(v);
+                });
+
+        typoLayout->addWidget(typoCheck);
+        typoLayout->addStretch();
+        typoLayout->addWidget(typoFreqLabel);
+        typoLayout->addWidget(typoMinSpin);
+        typoLayout->addWidget(typoDash);
+        typoLayout->addWidget(typoMaxSpin);
+        typoLayout->addWidget(typoChars);
+
+        // Double-key row
+        QHBoxLayout *doubleLayout = new QHBoxLayout();
+        doubleCheck = new QCheckBox("Double-key bounce", this);
+        doubleCheck->setChecked(true);
+        QLabel *doubleFreqLabel = new QLabel("every", this);
+        doubleMinSpin = new QSpinBox(this);
+        doubleMinSpin->setRange(50, 10000);
+        doubleMinSpin->setValue(250);
+        QLabel *doubleDash = new QLabel("–", this);
+        doubleMaxSpin = new QSpinBox(this);
+        doubleMaxSpin->setRange(50, 10000);
+        doubleMaxSpin->setValue(400);
+        QLabel *doubleChars = new QLabel("chars", this);
+
+        connect(doubleMinSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+                this, [this](int v) {
+                    if (v > doubleMaxSpin->value())
+                        doubleMaxSpin->setValue(v);
+                });
+        connect(doubleMaxSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+                this, [this](int v) {
+                    if (v < doubleMinSpin->value())
+                        doubleMinSpin->setValue(v);
+                });
+
+        doubleLayout->addWidget(doubleCheck);
+        doubleLayout->addStretch();
+        doubleLayout->addWidget(doubleFreqLabel);
+        doubleLayout->addWidget(doubleMinSpin);
+        doubleLayout->addWidget(doubleDash);
+        doubleLayout->addWidget(doubleMaxSpin);
+        doubleLayout->addWidget(doubleChars);
+
+        // Auto-correct row
+        QHBoxLayout *autoLayout = new QHBoxLayout();
+        autoCorrectCheck = new QCheckBox("Occasional self-correction", this);
+        autoCorrectCheck->setChecked(true);
+        QLabel *autoProbLabel = new QLabel("chance:", this);
+        autoCorrectProbSpin = new QSpinBox(this);
+        autoCorrectProbSpin->setRange(0, 100);
+        autoCorrectProbSpin->setValue(15);
+        QLabel *autoPercent = new QLabel("%", this);
+
+        autoLayout->addWidget(autoCorrectCheck);
+        autoLayout->addStretch();
+        autoLayout->addWidget(autoProbLabel);
+        autoLayout->addWidget(autoCorrectProbSpin);
+        autoLayout->addWidget(autoPercent);
+
+        imperfLayout->addLayout(typoLayout);
+        imperfLayout->addLayout(doubleLayout);
+        imperfLayout->addLayout(autoLayout);
+
+        topLayout->addWidget(imperfGroup);
+
         mainLayout->addLayout(topLayout);
 
+        // Text edit
         textEdit = new QPlainTextEdit(this);
         textEdit->setPlaceholderText("Paste your text here...");
         mainLayout->addWidget(textEdit);
 
+        // Buttons
         QHBoxLayout *buttonLayout = new QHBoxLayout();
         startButton = new QPushButton("Start (5s delay)");
         stopButton = new QPushButton("Stop");
@@ -265,6 +406,7 @@ private:
         buttonLayout->addWidget(stopButton);
         mainLayout->addLayout(buttonLayout);
 
+        // Status
         statusLabel = new QLabel("Ready");
         statusLabel->setAlignment(Qt::AlignCenter);
         statusLabel->setStyleSheet("padding: 8px; font-size: 13px;");
@@ -324,6 +466,35 @@ private:
         }
     }
 
+    void loadImperfectionSettingsFromUI() {
+        imperfections.enableTypos = typoCheck->isChecked();
+        imperfections.typoMin = typoMinSpin->value();
+        imperfections.typoMax = typoMaxSpin->value();
+
+        imperfections.enableDoubleKeys = doubleCheck->isChecked();
+        imperfections.doubleMin = doubleMinSpin->value();
+        imperfections.doubleMax = doubleMaxSpin->value();
+
+        imperfections.enableAutoCorrection = autoCorrectCheck->isChecked();
+        imperfections.correctionProbability = autoCorrectProbSpin->value();
+
+        charsTypedTotal = 0;
+        charsSinceLastTypo = 0;
+        charsSinceLastDouble = 0;
+
+        if (imperfections.enableTypos) {
+            nextTypoAt = randomRange(imperfections.typoMin, imperfections.typoMax);
+        } else {
+            nextTypoAt = INT_MAX;
+        }
+
+        if (imperfections.enableDoubleKeys) {
+            nextDoubleAt = randomRange(imperfections.doubleMin, imperfections.doubleMax);
+        } else {
+            nextDoubleAt = INT_MAX;
+        }
+    }
+
     // ---------- CONTROL FLOW -------------------------------------------------
 
     void startTyping() {
@@ -339,8 +510,10 @@ private:
         burstRemaining = 0;
         fatigueFactor = 1.0;
         previousChar = QChar();
-        rhythmPhase = QRandomGenerator::global()->generateDouble() * 6.28;
+        rhythmPhase = QRandomGenerator::global()->generateDouble() * 6.28318530718; // 2π
         wordsSinceBreak = 0;
+
+        loadImperfectionSettingsFromUI();
 
         startButton->setEnabled(false);
         stopButton->setEnabled(true);
@@ -366,7 +539,7 @@ private:
     void watchdogCheck() {
         if (!isTyping) return;
 
-        qint64 now = QDateTime::currentMSecsSinceEpoch();
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
         if (now - lastActionTime > 10000) {
             statusLabel->setText("Watchdog triggered — Reset");
             releaseAllKeys();
@@ -411,7 +584,106 @@ private:
         return chunk;
     }
 
-    // ---------- ADVANCED TIMING ----------------------------------------------
+    // ---------- IMPERFECTIONS ------------------------------------------------
+
+    QChar neighborKeyFor(QChar c) {
+        const bool upper = c.isUpper();
+        QChar lower = c.toLower();
+
+        static const QString rows[] = {
+            "qwertyuiop",
+            "asdfghjkl",
+            "zxcvbnm"
+        };
+
+        int rowIndex = -1;
+        int colIndex = -1;
+
+        for (int r = 0; r < 3; ++r) {
+            int idx = rows[r].indexOf(lower);
+            if (idx != -1) {
+                rowIndex = r;
+                colIndex = idx;
+                break;
+            }
+        }
+
+        if (rowIndex == -1) {
+            return c; // Not a letter we know
+        }
+
+        QList<QChar> candidates;
+
+        auto addIfValid = [&](int r, int col) {
+            if (r < 0 || r >= 3) return;
+            const QString &row = rows[r];
+            if (col < 0 || col >= row.size()) return;
+            QChar ch = row[col];
+            if (!candidates.contains(ch))
+                candidates.append(ch);
+        };
+
+        // Same row neighbors
+        addIfValid(rowIndex, colIndex - 1);
+        addIfValid(rowIndex, colIndex + 1);
+        // Vertical-ish neighbors
+        addIfValid(rowIndex - 1, colIndex);
+        addIfValid(rowIndex + 1, colIndex);
+        addIfValid(rowIndex - 1, colIndex - 1);
+        addIfValid(rowIndex - 1, colIndex + 1);
+        addIfValid(rowIndex + 1, colIndex - 1);
+        addIfValid(rowIndex + 1, colIndex + 1);
+
+        if (candidates.isEmpty()) {
+            return c;
+        }
+
+        const int idx = randomRange(0, candidates.size() - 1);
+        QChar out = candidates[idx];
+        if (upper)
+            out = out.toUpper();
+        return out;
+    }
+
+    QChar applyImperfectionsToChar(QChar original, bool &doDoubleKey, bool &doCorrection) {
+        doDoubleKey = false;
+        doCorrection = false;
+
+        charsTypedTotal++;
+        charsSinceLastTypo++;
+        charsSinceLastDouble++;
+
+        QChar out = original;
+
+        // Occasional neighbor-key typo
+        if (imperfections.enableTypos &&
+            charsSinceLastTypo >= nextTypoAt &&
+            original.isLetter()) {
+
+            out = neighborKeyFor(original);
+            charsSinceLastTypo = 0;
+            nextTypoAt = randomRange(imperfections.typoMin, imperfections.typoMax);
+
+            if (imperfections.enableAutoCorrection &&
+                QRandomGenerator::global()->bounded(100) < imperfections.correctionProbability) {
+                doCorrection = true;
+            }
+        }
+
+        // Occasional double-key bounce
+        if (imperfections.enableDoubleKeys &&
+            charsSinceLastDouble >= nextDoubleAt &&
+            !original.isSpace()) {
+
+            doDoubleKey = true;
+            charsSinceLastDouble = 0;
+            nextDoubleAt = randomRange(imperfections.doubleMin, imperfections.doubleMax);
+        }
+
+        return out;
+    }
+
+    // ---------- TYPING STEP --------------------------------------------------
 
     void typeNextChunk() {
         if (!isTyping || currentIndex >= textToType.length()) {
@@ -431,11 +703,11 @@ private:
 
         updateFatigue();
 
-        bool isSentenceEnd = (chunk.endsWith('.') || chunk.endsWith('!') || chunk.endsWith('?'));
-        bool burst = updateBurst();
+        const bool isSentenceEnd = chunk.endsWith('.') || chunk.endsWith('!') || chunk.endsWith('?');
+        const bool burst = updateBurst();
 
         bool thinkingPause = false;
-        if (wordsSinceBreak > randomRange(8, 15) && 
+        if (wordsSinceBreak > randomRange(8, 15) &&
             QRandomGenerator::global()->generateDouble() < 0.3) {
             thinkingPause = true;
             wordsSinceBreak = 0;
@@ -451,7 +723,7 @@ private:
     }
 
     void updateFatigue() {
-        double progress = double(currentIndex) / double(textToType.length());
+        const double progress = double(currentIndex) / double(textToType.length());
         fatigueFactor = 1.0 + 0.25 * progress;
     }
 
@@ -467,15 +739,17 @@ private:
         return false;
     }
 
-    int computeAdvancedDelay(const QString &chunk, bool isSentenceEnd, 
-                            bool isBurst, bool thinkingPause) {
-        int minD = minDelaySpinBox->value();
-        int maxD = maxDelaySpinBox->value();
-        
+    int computeAdvancedDelay(const QString &chunk,
+                             bool isSentenceEnd,
+                             bool isBurst,
+                             bool thinkingPause) {
+        const int minD = minDelaySpinBox->value();
+        const int maxD = maxDelaySpinBox->value();
+
         double range = maxD - minD;
         double gammaValue = gammaRandom(profile.gammaShape, profile.gammaScale);
         double normalized = std::min(gammaValue / 6.0, 1.0);
-        
+
         double delay = minD + range * normalized;
 
         delay *= rhythmicVariation();
@@ -517,37 +791,59 @@ private:
 
     void simulateKeyPress(const QString &chunk) {
         for (QChar ch : chunk) {
-            int holdTime = generateHoldTime(ch);
-            sendKeyWithHold(ch, holdTime);
+            bool doDouble = false;
+            bool doCorrection = false;
+
+            QChar effective = applyImperfectionsToChar(ch, doDouble, doCorrection);
+
+            int holdTime = generateHoldTime(effective);
+            sendKeyWithHold(effective, holdTime);
+
+            if (doDouble) {
+                int secondHold = generateHoldTime(effective);
+                QThread::msleep(randomRange(10, 40));
+                sendKeyWithHold(effective, secondHold);
+            }
+
+            if (doCorrection) {
+                QThread::msleep(randomRange(60, 160)); // slight pause
+                sendBackspace();
+                int corrHold = generateHoldTime(ch);
+                QThread::msleep(randomRange(40, 90));
+                sendKeyWithHold(ch, corrHold);
+            }
         }
     }
 
     int generateHoldTime(QChar ch) {
-        double hold = gammaRandom(2.5, 20);
-        
+        double hold = gammaRandom(2.5, 20.0); // ~ 50–150 ms
+
         if (ch.isUpper()) {
             hold *= 1.2;
         }
-        
+
         hold *= (0.9 + QRandomGenerator::global()->generateDouble() * 0.2);
-        
-        return qBound(40, int(hold), 180);
+
+        int result = int(hold);
+        if (result < 40) result = 40;
+        if (result > 180) result = 180;
+        return result;
     }
 
     void sendKeyWithHold(QChar c, int holdMs) {
 #ifdef Q_OS_LINUX
         if (c == '\n') {
-            ydotoolKeyWithHold(28, holdMs);
+            ydotoolKeyWithHold(28, holdMs); // Enter
             return;
         } else if (c == '\t') {
-            ydotoolKeyWithHold(43, holdMs);
+            ydotoolKeyWithHold(43, holdMs); // Tab
             return;
         }
 
         QProcess::execute("ydotool", {"type", QString(c)});
         QThread::msleep(holdMs);
 
-#else  // macOS
+#else // macOS
         CGEventRef down = nullptr;
         CGEventRef up = nullptr;
 
@@ -565,7 +861,24 @@ private:
         CGEventPost(kCGHIDEventTap, down);
         QThread::msleep(holdMs);
         CGEventPost(kCGHIDEventTap, up);
-        
+
+        CFRelease(down);
+        CFRelease(up);
+#endif
+    }
+
+    void sendBackspace() {
+#ifdef Q_OS_LINUX
+        // Backspace keycode is usually 14
+        QProcess::execute("ydotool", {"key", "14:1"});
+        QThread::msleep(10);
+        QProcess::execute("ydotool", {"key", "14:0"});
+#else // macOS
+        CGEventRef down = CGEventCreateKeyboardEvent(nullptr, 51, true);  // delete
+        CGEventRef up   = CGEventCreateKeyboardEvent(nullptr, 51, false);
+        CGEventPost(kCGHIDEventTap, down);
+        QThread::msleep(10);
+        CGEventPost(kCGHIDEventTap, up);
         CFRelease(down);
         CFRelease(up);
 #endif
@@ -588,18 +901,19 @@ private:
 #endif
     }
 
-    // ---------- STOP ---------------------------------------------------------
+    // ---------- STOP & EVENTS -----------------------------------------------
 
     void stopTyping() {
         typingTimer->stop();
         countdownTimer->stop();
+        watchdog->stop();
         isTyping = false;
         releaseAllKeys();
 
         startButton->setEnabled(true);
         stopButton->setEnabled(false);
 
-        bool finished = (currentIndex >= textToType.length());
+        const bool finished = (currentIndex >= textToType.length());
         statusLabel->setText(finished ? "Completed!" : "Stopped");
     }
 
