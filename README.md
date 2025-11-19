@@ -80,7 +80,7 @@ qmake
 make -j$(nproc)
 ```
 
-Or with CMake (if you create a CMakeLists.txt):
+Or with CMake:
 ```bash
 mkdir build && cd build
 cmake ..
