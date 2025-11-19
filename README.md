@@ -5,7 +5,8 @@ It is designed for realistic keystroke dynamics rather than automation speed.
 
 The program is built with Qt (C++17) and uses `ydotool` for low-level input injection on Linux.
 
-<img width="1144" height="1410" alt="image" src="https://github.com/user-attachments/assets/b3f74b62-f2ab-489b-b973-71fd467117b1" />
+<img width="1145" height="1408" alt="image" src="https://github.com/user-attachments/assets/ee2ce113-034e-4cb3-867a-b7e2024ec5b2" />
+
 
 
 ## Features
