@@ -269,6 +269,7 @@ private:
         imperfLayout->addLayout(typoLayout);
         imperfLayout->addLayout(doubleLayout);
         imperfLayout->addLayout(autoLayout);
+        
         topLayout->addWidget(imperfGroup);
         
         mainLayout->addLayout(topLayout);

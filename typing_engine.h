@@ -1,13 +1,18 @@
-// ============================================================================
-// typing_engine.h
-// ============================================================================
+// typing_engine.h - Complete typing engine with all implementations
 #ifndef TYPING_ENGINE_H
 #define TYPING_ENGINE_H
 
 #include <QString>
 #include <QChar>
 #include <QRandomGenerator>
+#include <QThread>
+#include <QProcess>
+#include <climits>
 #include <cmath>
+
+#ifdef Q_OS_MAC
+#include <ApplicationServices/ApplicationServices.h>
+#endif
 
 // Forward declarations
 class IKeyboardSimulator;
@@ -99,7 +104,6 @@ private:
     TimingProfile profile_;
     DelayRange delays_;
     
-    // State
     QChar previousChar_;
     double rhythmPhase_;
     double fatigueFactor_;
@@ -210,7 +214,6 @@ public:
     void setText(const QString& text);
     bool hasMoreToType() const;
     
-    // Returns delay in ms until next character should be typed
     int typeNextChunk();
     
     int progressPercent() const;
@@ -229,25 +232,12 @@ private:
     int wordsSinceBreak_;
 };
 
-#endif // TYPING_ENGINE_H
-
 // ============================================================================
-// typing_engine.cpp
+// IMPLEMENTATIONS
 // ============================================================================
 
-#include <QThread>
-#include <QProcess>
-#include <climits>
-
-#ifdef Q_OS_MAC
-#include <ApplicationServices/ApplicationServices.h>
-#endif
-
-// ============================================================================
 // TimingProfile
-// ============================================================================
-
-TimingProfile TimingProfile::humanAdvanced() {
+inline TimingProfile TimingProfile::humanAdvanced() {
     TimingProfile p;
     p.baseSpeedFactor = 1.0;
     p.microStutterProb = 0.1;
@@ -261,7 +251,7 @@ TimingProfile TimingProfile::humanAdvanced() {
     return p;
 }
 
-TimingProfile TimingProfile::fastHuman() {
+inline TimingProfile TimingProfile::fastHuman() {
     TimingProfile p;
     p.baseSpeedFactor = 0.7;
     p.microStutterProb = 0.06;
@@ -275,7 +265,7 @@ TimingProfile TimingProfile::fastHuman() {
     return p;
 }
 
-TimingProfile TimingProfile::slowTired() {
+inline TimingProfile TimingProfile::slowTired() {
     TimingProfile p;
     p.baseSpeedFactor = 1.5;
     p.microStutterProb = 0.15;
@@ -289,7 +279,7 @@ TimingProfile TimingProfile::slowTired() {
     return p;
 }
 
-TimingProfile TimingProfile::professional() {
+inline TimingProfile TimingProfile::professional() {
     TimingProfile p;
     p.baseSpeedFactor = 0.75;
     p.microStutterProb = 0.04;
@@ -303,11 +293,8 @@ TimingProfile TimingProfile::professional() {
     return p;
 }
 
-// ============================================================================
 // RandomGenerator
-// ============================================================================
-
-double RandomGenerator::gamma(double shape, double scale) {
+inline double RandomGenerator::gamma(double shape, double scale) {
     if (shape < 1.0) {
         return gamma(1.0 + shape, scale) * 
                std::pow(uniform(), 1.0 / shape);
@@ -335,7 +322,7 @@ double RandomGenerator::gamma(double shape, double scale) {
     }
 }
 
-double RandomGenerator::normal(double mean, double stddev) {
+inline double RandomGenerator::normal(double mean, double stddev) {
     static bool hasSpare = false;
     static double spare;
     
@@ -358,26 +345,23 @@ double RandomGenerator::normal(double mean, double stddev) {
     return mean + stddev * u * s;
 }
 
-int RandomGenerator::range(int min, int max) {
+inline int RandomGenerator::range(int min, int max) {
     if (min > max) std::swap(min, max);
     return QRandomGenerator::global()->bounded(min, max + 1);
 }
 
-double RandomGenerator::uniform() {
+inline double RandomGenerator::uniform() {
     return QRandomGenerator::global()->generateDouble();
 }
 
-// ============================================================================
 // KeyboardLayout
-// ============================================================================
-
-const QString KeyboardLayout::rows[3] = {
+inline const QString KeyboardLayout::rows[3] = {
     "qwertyuiop",
     "asdfghjkl",
     "zxcvbnm"
 };
 
-QChar KeyboardLayout::getNeighborKey(QChar c) {
+inline QChar KeyboardLayout::getNeighborKey(QChar c) {
     bool upper = c.isUpper();
     QChar lower = c.toLower();
     
@@ -421,15 +405,12 @@ QChar KeyboardLayout::getNeighborKey(QChar c) {
     return upper ? out.toUpper() : out;
 }
 
-bool KeyboardLayout::isLetter(QChar c) {
+inline bool KeyboardLayout::isLetter(QChar c) {
     return c.isLetter();
 }
 
-// ============================================================================
 // TypingDynamics
-// ============================================================================
-
-TypingDynamics::TypingDynamics(const TimingProfile& profile, const DelayRange& delays)
+inline TypingDynamics::TypingDynamics(const TimingProfile& profile, const DelayRange& delays)
     : profile_(profile)
     , delays_(delays)
     , previousChar_()
@@ -439,7 +420,7 @@ TypingDynamics::TypingDynamics(const TimingProfile& profile, const DelayRange& d
     , totalCharsTyped_(0)
 {}
 
-void TypingDynamics::reset() {
+inline void TypingDynamics::reset() {
     previousChar_ = QChar();
     rhythmPhase_ = RandomGenerator::uniform() * 6.28318530718;
     fatigueFactor_ = 1.0;
@@ -447,17 +428,16 @@ void TypingDynamics::reset() {
     totalCharsTyped_ = 0;
 }
 
-void TypingDynamics::updateState(QChar currentChar, bool isNewWord) {
+inline void TypingDynamics::updateState(QChar currentChar, bool isNewWord) {
     previousChar_ = currentChar;
     totalCharsTyped_++;
     
-    // Update fatigue based on total progress (approximation)
     if (totalCharsTyped_ % 50 == 0) {
         fatigueFactor_ = 1.0 + 0.25 * std::min(1.0, totalCharsTyped_ / 1000.0);
     }
 }
 
-bool TypingDynamics::shouldBurst() {
+inline bool TypingDynamics::shouldBurst() {
     if (burstRemaining_ > 0) {
         burstRemaining_--;
         return true;
@@ -469,18 +449,18 @@ bool TypingDynamics::shouldBurst() {
     return false;
 }
 
-bool TypingDynamics::shouldThinkingPause(int wordsSinceBreak) {
+inline bool TypingDynamics::shouldThinkingPause(int wordsSinceBreak) {
     return wordsSinceBreak > RandomGenerator::range(8, 15) &&
            RandomGenerator::uniform() < 0.3;
 }
 
-double TypingDynamics::rhythmicVariation() {
+inline double TypingDynamics::rhythmicVariation() {
     rhythmPhase_ += 0.03;
     double rhythm = std::sin(rhythmPhase_) * 0.5 + 0.5;
     return 0.85 + rhythm * 0.3;
 }
 
-double TypingDynamics::digraphFactor(QChar prev, QChar curr) {
+inline double TypingDynamics::digraphFactor(QChar prev, QChar curr) {
     QString digraph = QString(prev) + QString(curr);
     static const QStringList fast = {"th","he","in","er","an","re","on","at","en","nd"};
     
@@ -507,7 +487,7 @@ double TypingDynamics::digraphFactor(QChar prev, QChar curr) {
     return 1.0;
 }
 
-int TypingDynamics::calculateDelay(QChar ch, bool isSentenceEnd, bool isBurst, bool isThinkingPause) {
+inline int TypingDynamics::calculateDelay(QChar ch, bool isSentenceEnd, bool isBurst, bool isThinkingPause) {
     double range = delays_.maxMs - delays_.minMs;
     double gammaValue = RandomGenerator::gamma(profile_.gammaShape, profile_.gammaScale);
     double normalized = std::min(gammaValue / 6.0, 1.0);
@@ -544,7 +524,7 @@ int TypingDynamics::calculateDelay(QChar ch, bool isSentenceEnd, bool isBurst, b
     return qBound(15, int(delay), 8000);
 }
 
-int TypingDynamics::generateHoldTime(QChar ch) {
+inline int TypingDynamics::generateHoldTime(QChar ch) {
     double hold = RandomGenerator::gamma(2.5, 20.0);
     
     if (ch.isUpper()) {
@@ -556,11 +536,8 @@ int TypingDynamics::generateHoldTime(QChar ch) {
     return qBound(40, int(hold), 180);
 }
 
-// ============================================================================
 // ImperfectionGenerator
-// ============================================================================
-
-ImperfectionGenerator::ImperfectionGenerator(const ImperfectionSettings& settings)
+inline ImperfectionGenerator::ImperfectionGenerator(const ImperfectionSettings& settings)
     : settings_(settings)
     , charsTypedTotal_(0)
     , charsSinceLastTypo_(0)
@@ -571,7 +548,7 @@ ImperfectionGenerator::ImperfectionGenerator(const ImperfectionSettings& setting
     reset();
 }
 
-void ImperfectionGenerator::reset() {
+inline void ImperfectionGenerator::reset() {
     charsTypedTotal_ = 0;
     charsSinceLastTypo_ = 0;
     charsSinceLastDouble_ = 0;
@@ -579,7 +556,7 @@ void ImperfectionGenerator::reset() {
     scheduleNextDouble();
 }
 
-void ImperfectionGenerator::scheduleNextTypo() {
+inline void ImperfectionGenerator::scheduleNextTypo() {
     if (settings_.enableTypos) {
         nextTypoAt_ = RandomGenerator::range(settings_.typoMin, settings_.typoMax);
     } else {
@@ -587,7 +564,7 @@ void ImperfectionGenerator::scheduleNextTypo() {
     }
 }
 
-void ImperfectionGenerator::scheduleNextDouble() {
+inline void ImperfectionGenerator::scheduleNextDouble() {
     if (settings_.enableDoubleKeys) {
         nextDoubleAt_ = RandomGenerator::range(settings_.doubleMin, settings_.doubleMax);
     } else {
@@ -595,7 +572,7 @@ void ImperfectionGenerator::scheduleNextDouble() {
     }
 }
 
-ImperfectionResult ImperfectionGenerator::processCharacter(QChar original) {
+inline ImperfectionResult ImperfectionGenerator::processCharacter(QChar original) {
     ImperfectionResult result;
     result.character = original;
     
@@ -603,7 +580,6 @@ ImperfectionResult ImperfectionGenerator::processCharacter(QChar original) {
     charsSinceLastTypo_++;
     charsSinceLastDouble_++;
     
-    // Typo check
     if (charsSinceLastTypo_ >= nextTypoAt_ && KeyboardLayout::isLetter(original)) {
         result.character = KeyboardLayout::getNeighborKey(original);
         charsSinceLastTypo_ = 0;
@@ -615,7 +591,6 @@ ImperfectionResult ImperfectionGenerator::processCharacter(QChar original) {
         }
     }
     
-    // Double key check
     if (charsSinceLastDouble_ >= nextDoubleAt_ && !original.isSpace()) {
         result.shouldDouble = true;
         charsSinceLastDouble_ = 0;
@@ -625,20 +600,17 @@ ImperfectionResult ImperfectionGenerator::processCharacter(QChar original) {
     return result;
 }
 
-// ============================================================================
 // TextChunker
-// ============================================================================
-
-TextChunker::TextChunker(const QString& text)
+inline TextChunker::TextChunker(const QString& text)
     : text_(text)
     , currentIndex_(0)
 {}
 
-bool TextChunker::hasMore() const {
+inline bool TextChunker::hasMore() const {
     return currentIndex_ < text_.length();
 }
 
-QString TextChunker::nextChunk() {
+inline QString TextChunker::nextChunk() {
     if (!hasMore()) return QString();
     
     QChar ch = text_[currentIndex_];
@@ -673,43 +645,42 @@ QString TextChunker::nextChunk() {
     return chunk;
 }
 
-int TextChunker::progressPercent() const {
+inline int TextChunker::progressPercent() const {
     if (text_.length() == 0) return 100;
     return (currentIndex_ * 100) / text_.length();
 }
 
-// ============================================================================
 // Platform Implementations
-// ============================================================================
-
 #ifdef Q_OS_LINUX
-void LinuxKeyboardSimulator::typeCharacter(QChar c, int holdTimeMs) {
+inline void LinuxKeyboardSimulator::typeCharacter(QChar c, int holdTimeMs) {
     if (c == '\n') {
-        sendKey(28, holdTimeMs);
+        // Send Shift+Enter as a single ydotool command to avoid timing issues
+        // Format: "42:1 28:1 28:0 42:0" means Shift down, Enter down, Enter up, Shift up
+        QProcess::execute("ydotool", {"key", "42:1", "28:1", "28:0", "42:0"});
+        QThread::msleep(holdTimeMs);
         return;
     } else if (c == '\t') {
         sendKey(43, holdTimeMs);
         return;
     }
     
-    // Use ydotool type for Unicode support
     QProcess::execute("ydotool", {"type", "--", QString(c)});
     QThread::msleep(holdTimeMs);
 }
 
-void LinuxKeyboardSimulator::pressBackspace() {
+inline void LinuxKeyboardSimulator::pressBackspace() {
     QProcess::execute("ydotool", {"key", "14:1"});
     QThread::msleep(10);
     QProcess::execute("ydotool", {"key", "14:0"});
 }
 
-void LinuxKeyboardSimulator::sendKey(int keycode, int holdMs) {
+inline void LinuxKeyboardSimulator::sendKey(int keycode, int holdMs) {
     QProcess::execute("ydotool", {"key", QString::number(keycode) + ":1"});
     QThread::msleep(holdMs);
     QProcess::execute("ydotool", {"key", QString::number(keycode) + ":0"});
 }
 
-void LinuxKeyboardSimulator::releaseAllKeys() {
+inline void LinuxKeyboardSimulator::releaseAllKeys() {
     QList<int> mods = {28, 42, 29, 56, 125, 97, 100, 102};
     for (int keycode : mods) {
         QProcess::execute("ydotool", {"key", QString::number(keycode) + ":0"});
@@ -718,30 +689,56 @@ void LinuxKeyboardSimulator::releaseAllKeys() {
 #endif
 
 #ifdef Q_OS_MAC
-void MacKeyboardSimulator::typeCharacter(QChar c, int holdTimeMs) {
+inline void MacKeyboardSimulator::typeCharacter(QChar c, int holdTimeMs) {
     CGEventRef down = nullptr;
     CGEventRef up = nullptr;
     
     if (c == '\n') {
-        down = CGEventCreateKeyboardEvent(nullptr, 0x24, true);
-        up = CGEventCreateKeyboardEvent(nullptr, 0x24, false);
+        // Send Shift+Enter to avoid triggering submit buttons
+        CGEventRef shiftDown = CGEventCreateKeyboardEvent(nullptr, 56, true);  // Shift
+        CGEventPost(kCGHIDEventTap, shiftDown);
+        CFRelease(shiftDown);
+        
+        QThread::msleep(10);
+        
+        // Send Enter while Shift is held
+        down = CGEventCreateKeyboardEvent(nullptr, 0x24, true);  // Enter down
+        up = CGEventCreateKeyboardEvent(nullptr, 0x24, false);   // Enter up
+        
+        CGEventSetFlags(down, kCGEventFlagMaskShift);  // Mark as Shift+Enter
+        CGEventSetFlags(up, kCGEventFlagMaskShift);
+        
+        CGEventPost(kCGHIDEventTap, down);
+        QThread::msleep(holdTimeMs);
+        CGEventPost(kCGHIDEventTap, up);
+        
+        CFRelease(down);
+        CFRelease(up);
+        
+        QThread::msleep(10);
+        
+        // Release Shift
+        CGEventRef shiftUp = CGEventCreateKeyboardEvent(nullptr, 56, false);
+        CGEventPost(kCGHIDEventTap, shiftUp);
+        CFRelease(shiftUp);
+        return;
     } else {
         UniChar uc = c.unicode();
         down = CGEventCreateKeyboardEvent(nullptr, 0, true);
         up = CGEventCreateKeyboardEvent(nullptr, 0, false);
         CGEventKeyboardSetUnicodeString(down, 1, &uc);
         CGEventKeyboardSetUnicodeString(up, 1, &uc);
+        
+        CGEventPost(kCGHIDEventTap, down);
+        QThread::msleep(holdTimeMs);
+        CGEventPost(kCGHIDEventTap, up);
+        
+        CFRelease(down);
+        CFRelease(up);
     }
-    
-    CGEventPost(kCGHIDEventTap, down);
-    QThread::msleep(holdTimeMs);
-    CGEventPost(kCGHIDEventTap, up);
-    
-    CFRelease(down);
-    CFRelease(up);
 }
 
-void MacKeyboardSimulator::pressBackspace() {
+inline void MacKeyboardSimulator::pressBackspace() {
     CGEventRef down = CGEventCreateKeyboardEvent(nullptr, 51, true);
     CGEventRef up = CGEventCreateKeyboardEvent(nullptr, 51, false);
     CGEventPost(kCGHIDEventTap, down);
@@ -751,16 +748,13 @@ void MacKeyboardSimulator::pressBackspace() {
     CFRelease(up);
 }
 
-void MacKeyboardSimulator::releaseAllKeys() {
+inline void MacKeyboardSimulator::releaseAllKeys() {
     // macOS doesn't typically need this
 }
 #endif
 
-// ============================================================================
 // TypingEngine
-// ============================================================================
-
-TypingEngine::TypingEngine(IKeyboardSimulator* simulator,
+inline TypingEngine::TypingEngine(IKeyboardSimulator* simulator,
                            const TimingProfile& profile,
                            const DelayRange& delays,
                            const ImperfectionSettings& imperfections)
@@ -774,7 +768,7 @@ TypingEngine::TypingEngine(IKeyboardSimulator* simulator,
     , wordsSinceBreak_(0)
 {}
 
-void TypingEngine::setText(const QString& text) {
+inline void TypingEngine::setText(const QString& text) {
     delete chunker_;
     delete dynamics_;
     delete imperfectionGen_;
@@ -785,17 +779,16 @@ void TypingEngine::setText(const QString& text) {
     wordsSinceBreak_ = 0;
 }
 
-bool TypingEngine::hasMoreToType() const {
+inline bool TypingEngine::hasMoreToType() const {
     return chunker_ && chunker_->hasMore();
 }
 
-int TypingEngine::typeNextChunk() {
+inline int TypingEngine::typeNextChunk() {
     if (!hasMoreToType()) return 0;
     
     QString chunk = chunker_->nextChunk();
     if (chunk.isEmpty()) return 0;
     
-    // Type each character in chunk with imperfections
     for (QChar originalChar : chunk) {
         ImperfectionResult result = imperfectionGen_->processCharacter(originalChar);
         
@@ -822,7 +815,6 @@ int TypingEngine::typeNextChunk() {
         dynamics_->updateState(originalChar, isNewWord);
     }
     
-    // Calculate delay for next chunk
     QChar lastChar = chunk.back();
     bool isSentenceEnd = (lastChar == '.' || lastChar == '!' || lastChar == '?');
     bool isBurst = dynamics_->shouldBurst();
@@ -833,12 +825,14 @@ int TypingEngine::typeNextChunk() {
     return dynamics_->calculateDelay(lastChar, isSentenceEnd, isBurst, isThinkingPause);
 }
 
-int TypingEngine::progressPercent() const {
+inline int TypingEngine::progressPercent() const {
     return chunker_ ? chunker_->progressPercent() : 0;
 }
 
-void TypingEngine::reset() {
+inline void TypingEngine::reset() {
     if (dynamics_) dynamics_->reset();
     if (imperfectionGen_) imperfectionGen_->reset();
     wordsSinceBreak_ = 0;
 }
+
+#endif // TYPING_ENGINE_H
