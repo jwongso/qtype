@@ -15,6 +15,7 @@
 #include <QComboBox>
 #include <QCheckBox>
 #include <QDateTime>
+#include <QRegularExpression>
 
 class AutoTyperWindow : public QMainWindow {
     Q_OBJECT
@@ -156,6 +157,35 @@ private slots:
             stopTyping();
         }
     }
+    
+    void updateStats() {
+        QString text = textEdit_->toPlainText();
+        
+        // Count characters
+        int charCount = text.length();
+        
+        // Count words (split by whitespace, filter empty)
+        QStringList words = text.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+        int wordCount = words.size();
+        
+        // Estimate tokens (rough approximation: ~1.3 tokens per word for English)
+        // This is based on GPT tokenization averages
+        int tokenEstimate = qRound(wordCount * 1.3);
+        
+        // Count lines
+        int lineCount = text.split('\n').size();
+        
+        // Update stats label
+        if (charCount == 0) {
+            statsLabel_->setText("");
+        } else {
+            statsLabel_->setText(QString("Characters: %1  |  Words: %2  |  Lines: %3  |  Tokens (est.): ~%4")
+                .arg(charCount)
+                .arg(wordCount)
+                .arg(lineCount)
+                .arg(tokenEstimate));
+        }
+    }
 
 private:
     void setupUI() {
@@ -277,6 +307,10 @@ private:
         // Text edit
         textEdit_ = new QPlainTextEdit(this);
         textEdit_->setPlaceholderText("Paste your text here...");
+        
+        // Connect to update stats when text changes
+        connect(textEdit_, &QPlainTextEdit::textChanged, this, &AutoTyperWindow::updateStats);
+        
         mainLayout->addWidget(textEdit_);
         
         // Buttons
@@ -297,6 +331,12 @@ private:
         statusLabel_->setAlignment(Qt::AlignCenter);
         statusLabel_->setStyleSheet("padding: 8px; font-size: 13px;");
         mainLayout->addWidget(statusLabel_);
+        
+        // Stats bar at bottom
+        statsLabel_ = new QLabel("");
+        statsLabel_->setAlignment(Qt::AlignRight);
+        statsLabel_->setStyleSheet("padding: 5px; font-size: 11px; color: #666; background-color: #f5f5f5;");
+        mainLayout->addWidget(statsLabel_);
         
         setCentralWidget(central);
     }
@@ -338,6 +378,9 @@ private:
     
     QCheckBox *autoCorrectCheck_ = nullptr;
     QSpinBox *autoCorrectProbSpin_ = nullptr;
+    
+    // Stats
+    QLabel *statsLabel_ = nullptr;
     
     // Engine
     IKeyboardSimulator *simulator_ = nullptr;
