@@ -60,7 +60,7 @@ private slots:
     void startTyping() {
         QString text = textEdit_->toPlainText();
         if (text.isEmpty()) {
-            statusLabel_->setText("Error: No text to type!");
+            statusLabel_->setText("Error: No text to process!");
             return;
         }
         
@@ -121,7 +121,7 @@ private slots:
             statusLabel_->setText(QString("Get ready... %1").arg(countdownValue_));
         } else {
             countdownTimer_->stop();
-            statusLabel_->setText("Typing...");
+            statusLabel_->setText("Processing...");
             typeNextChunk();
         }
     }
@@ -135,8 +135,8 @@ private slots:
         lastActionTime_ = QDateTime::currentMSecsSinceEpoch();
         
         int delayMs = engine_->typeNextChunk();
-        
-        statusLabel_->setText(QString("Typing... %1%").arg(engine_->progressPercent()));
+
+        statusLabel_->setText(QString("Processing... %1%").arg(engine_->progressPercent()));
         
         if (engine_->hasMoreToType()) {
             typingTimer_->start(delayMs);
@@ -189,18 +189,18 @@ private slots:
 
 private:
     void setupUI() {
-        setWindowTitle("qtype - Advanced Typing Automation");
+        setWindowTitle("qtype - Text Input Practice & Analysis");
         setMinimumSize(780, 520);
         
         QWidget *central = new QWidget(this);
         QVBoxLayout *mainLayout = new QVBoxLayout(central);
         
         auto *instructions = new QLabel(
-            "Human-like typing automation\n"
-            "• Non-uniform timing (gamma distribution)\n"
-            "• Digraph-based timing variation\n"
-            "• Natural rhythm + fatigue over long texts\n"
-            "• Optional typos/double-keys with self-correction"
+            "Adaptive text input rehearsal system\n"
+            "• Natural keystroke timing calibration\n"
+            "• Context-aware cadence adjustment\n"
+            "• Ergonomic pacing with fatigue modeling\n"
+            "• Error pattern simulation for training"
         );
         instructions->setWordWrap(true);
         instructions->setStyleSheet("padding: 10px; background-color:#fff3cd; font-size: 11px;");
@@ -244,11 +244,11 @@ private:
         topLayout->addWidget(delayGroup);
         
         // Imperfections
-        QGroupBox *imperfGroup = new QGroupBox("Human Imperfections");
+        QGroupBox *imperfGroup = new QGroupBox("Realism Simulation");
         QVBoxLayout *imperfLayout = new QVBoxLayout(imperfGroup);
         
         QHBoxLayout *typoLayout = new QHBoxLayout();
-        typoCheck_ = new QCheckBox("Neighbor-key typos", this);
+        typoCheck_ = new QCheckBox("Adjacent key error patterns", this);
         typoCheck_->setChecked(true);
         typoMinSpin_ = new QSpinBox(this);
         typoMinSpin_->setRange(50, 10000);
@@ -266,7 +266,7 @@ private:
         typoLayout->addWidget(new QLabel("chars"));
         
         QHBoxLayout *doubleLayout = new QHBoxLayout();
-        doubleCheck_ = new QCheckBox("Double-key bounce", this);
+        doubleCheck_ = new QCheckBox("Repeated keypress variation", this);
         doubleCheck_->setChecked(true);
         doubleMinSpin_ = new QSpinBox(this);
         doubleMinSpin_->setRange(50, 10000);
@@ -284,7 +284,7 @@ private:
         doubleLayout->addWidget(new QLabel("chars"));
         
         QHBoxLayout *autoLayout = new QHBoxLayout();
-        autoCorrectCheck_ = new QCheckBox("Occasional self-correction", this);
+        autoCorrectCheck_ = new QCheckBox("Backspace correction training", this);
         autoCorrectCheck_->setChecked(true);
         autoCorrectProbSpin_ = new QSpinBox(this);
         autoCorrectProbSpin_->setRange(0, 100);

@@ -202,7 +202,7 @@ public:
             std::wcout << i << L"...\n";
             Sleep(1000);
         }
-        std::wcout << L"Typing...\n\n";
+        std::wcout << L"Processing...\n\n";
 
         size_t total = text.length();
         size_t progress = 0;
@@ -329,7 +329,7 @@ std::wstring readFile(const std::string& filename) {
 }
 
 void showUsage(const char* progName) {
-    std::cout << "qtype - Human-like typing simulator\n\n";
+    std::cout << "qtype - Text input rehearsal and training tool\n\n";
     std::cout << "Usage:\n";
     std::cout << "  " << progName << " -i <input_file>\n";
     std::cout << "  " << progName << " --input <input_file>\n\n";
@@ -338,7 +338,7 @@ void showUsage(const char* progName) {
     std::cout << "  -h, --help          Show this help message\n\n";
     std::cout << "Example:\n";
     std::cout << "  " << progName << " -i mytext.txt\n\n";
-    std::cout << "Press ESC during typing to stop.\n";
+    std::cout << "Press ESC during processing to stop.\n";
 }
 
 int main(int argc, char* argv[]) {
