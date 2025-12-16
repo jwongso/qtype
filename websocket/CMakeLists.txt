@@ -40,7 +40,13 @@ endif()
 # ============================================================================
 
 if(BUILD_CLIENT)
+    find_package(nlohmann_json CONFIG REQUIRED)
     add_executable(qtype_client qtype_client.cpp)
+
+    target_link_libraries(qtype_client
+    PRIVATE
+        nlohmann_json::nlohmann_json
+    )
     
     # Platform-specific
     if(APPLE)
