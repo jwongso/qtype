@@ -415,6 +415,33 @@ private:
 };
 
 // ============================================================================
+// JSON Utilities
+// ============================================================================
+
+std::string unescapeJsonString(const std::string& str) {
+    std::string result;
+    result.reserve(str.length());
+
+    for (size_t i = 0; i < str.length(); ++i) {
+        if (str[i] == '\\' && i + 1 < str.length()) {
+            switch (str[i + 1]) {
+                case 'n': result += '\n'; ++i; break;
+                case 't': result += '\t'; ++i; break;
+                case 'r': result += '\r'; ++i; break;
+                case '\\': result += '\\'; ++i; break;
+                case '"': result += '"'; ++i; break;
+                case '/': result += '/'; ++i; break;
+                default: result += str[i]; break;
+            }
+        } else {
+            result += str[i];
+        }
+    }
+
+    return result;
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -456,8 +483,17 @@ int main(int argc, char* argv[]) {
                 if (textPos != std::string::npos) {
                     size_t start = textPos + 8;
                     size_t end = message.find("\"", start);
-                    std::string text = message.substr(start, end - start);
-                    
+
+                    // Handle escaped quotes within the text
+                    while (end != std::string::npos && end > 0 && message[end - 1] == '\\') {
+                        end = message.find("\"", end + 1);
+                    }
+
+                    std::string rawText = message.substr(start, end - start);
+                    std::string text = unescapeJsonString(rawText);
+
+                    std::cout << "Text to type: " << text.length() << " characters\n";
+
                     // Start typing in separate thread
                     std::thread([&engine, text, &shouldStop]() {
                         engine.typeText(text, shouldStop);

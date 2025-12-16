@@ -32,8 +32,18 @@ public:
     }
     
     ~QTypeServer() {
+        // Properly disconnect all clients before closing server
+        for (QWebSocket *client : clients_) {
+            if (client) {
+                client->close(QWebSocketProtocol::CloseCodeNormal, "Server shutting down");
+                client->deleteLater();
+            }
+        }
+        clients_.clear();
+
         if (wsServer_) {
             wsServer_->close();
+            wsServer_->deleteLater();
         }
     }
 
@@ -60,10 +70,11 @@ private slots:
     void onClientDisconnected() {
         QWebSocket *client = qobject_cast<QWebSocket*>(sender());
         if (client) {
+            QString clientInfo = QString("%1:%2").arg(client->peerAddress().toString()).arg(client->peerPort());
             clients_.removeAll(client);
             client->deleteLater();
             updateClientList();
-            statusLabel_->setText("Client disconnected");
+            statusLabel_->setText(QString("Client disconnected: %1").arg(clientInfo));
         }
     }
     

@@ -1,0 +1,40 @@
+# Build directories
+build/
+build-*/
+
+# CMake
+CMakeLists.txt.user
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+*.cmake
+
+# Compiled binaries
+qtype_server
+qtype_client
+*.o
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Qt generated files
+*_autogen/
+*.moc
+moc_*.cpp
+qrc_*.cpp
+ui_*.h
+
+# IDE files
+.vscode/
+.idea/
+*.pro.user
+*.pro.user.*
+
+# macOS
+.DS_Store
+
+# Backup files
+*~
+*.bak
+*.swp
