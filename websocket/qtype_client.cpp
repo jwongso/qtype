@@ -495,8 +495,10 @@ int main(int argc, char* argv[]) {
                     std::cout << "Text to type: " << text.length() << " characters\n";
 
                     // Start typing in separate thread
-                    std::thread([&engine, text, &shouldStop]() {
+                    std::thread([&engine, text, &shouldStop, &ws]() {
                         engine.typeText(text, shouldStop);
+                        // Send completion message to server
+                        ws.sendMessage(R"({"type":"completed"})");
                     }).detach();
                 }
             }

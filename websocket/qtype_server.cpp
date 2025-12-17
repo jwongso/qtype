@@ -99,6 +99,8 @@ private slots:
         }
         else if (type == "completed") {
             statusLabel_->setText("Typing completed on client");
+            startButton_->setEnabled(true);
+            stopButton_->setEnabled(false);
         }
     }
     
