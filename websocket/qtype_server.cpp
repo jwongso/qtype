@@ -26,24 +26,31 @@ class QTypeServer : public QMainWindow {
     Q_OBJECT
 
 public:
-    QTypeServer(QWidget *parent = nullptr) : QMainWindow(parent) {
+    QTypeServer(QWidget *parent = nullptr) : QMainWindow(parent), isDestroying_(false) {
         setupUI();
         startServer();
     }
-    
+
     ~QTypeServer() {
-        // Properly disconnect all clients before closing server
+        // Set flag to prevent signal handlers from running
+        isDestroying_ = true;
+
+        // Disconnect all signals to prevent handlers from being called during destruction
+        if (wsServer_) {
+            disconnect(wsServer_, nullptr, this, nullptr);
+        }
+
+        // Disconnect and clean up all clients
         for (QWebSocket *client : clients_) {
             if (client) {
+                disconnect(client, nullptr, this, nullptr);
                 client->close(QWebSocketProtocol::CloseCodeNormal, "Server shutting down");
-                client->deleteLater();
             }
         }
         clients_.clear();
 
         if (wsServer_) {
             wsServer_->close();
-            wsServer_->deleteLater();
         }
     }
 
@@ -69,6 +76,11 @@ private slots:
     }
     
     void onClientDisconnected() {
+        // Don't process disconnections during destruction
+        if (isDestroying_) {
+            return;
+        }
+
         QWebSocket *client = qobject_cast<QWebSocket*>(sender());
         if (client) {
             QString clientInfo = QString("%1:%2").arg(client->peerAddress().toString()).arg(client->peerPort());
@@ -405,25 +417,26 @@ private:
     QWebSocketServer *wsServer_ = nullptr;
     QList<QWebSocket*> clients_;
     QMap<QWebSocket*, bool> clientBusyState_;  // true = busy, false = free
-    
+    bool isDestroying_ = false;
+
     QPlainTextEdit *textEdit_ = nullptr;
     QPushButton *startButton_ = nullptr;
     QPushButton *stopButton_ = nullptr;
     QLabel *statusLabel_ = nullptr;
     QListWidget *clientList_ = nullptr;
-    
+
     QSpinBox *minDelaySpinBox_ = nullptr;
     QSpinBox *maxDelaySpinBox_ = nullptr;
     QComboBox *profileCombo_ = nullptr;
-    
+
     QCheckBox *typoCheck_ = nullptr;
     QSpinBox *typoMinSpin_ = nullptr;
     QSpinBox *typoMaxSpin_ = nullptr;
-    
+
     QCheckBox *doubleCheck_ = nullptr;
     QSpinBox *doubleMinSpin_ = nullptr;
     QSpinBox *doubleMaxSpin_ = nullptr;
-    
+
     QCheckBox *autoCorrectCheck_ = nullptr;
     QSpinBox *autoCorrectProbSpin_ = nullptr;
 };
