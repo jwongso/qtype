@@ -369,14 +369,20 @@ private:
             }
         } else {
             // Enable start button if at least one client is free
+            // Enable stop button if at least one client is busy
             bool anyFree = false;
+            bool anyBusy = false;
             for (QWebSocket *client : clients_) {
-                if (!clientBusyState_.value(client, false)) {
+                bool isBusy = clientBusyState_.value(client, false);
+                if (isBusy) {
+                    anyBusy = true;
+                } else {
                     anyFree = true;
-                    break;
                 }
+                if (anyFree && anyBusy) break;  // Found both, no need to continue
             }
             startButton_->setEnabled(anyFree);
+            stopButton_->setEnabled(anyBusy);
         }
     }
     

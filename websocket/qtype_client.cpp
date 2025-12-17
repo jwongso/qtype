@@ -501,7 +501,8 @@ int main(int argc, char* argv[]) {
 
                     std::cout << "Text to type: " << text.length() << " characters\n";
 
-                    // Set busy state and notify server
+                    // Reset stop flag and set busy state
+                    shouldStop = false;
                     isBusy = true;
                     ws.sendMessage(R"({"type":"status","status":"busy"})");
 
