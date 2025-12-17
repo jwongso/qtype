@@ -55,8 +55,9 @@ private slots:
         connect(client, &QWebSocket::disconnected, this, &QTypeServer::onClientDisconnected);
         
         clients_.append(client);
+        clientBusyState_[client] = false;  // Initialize as free
         updateClientList();
-        
+
         QString clientInfo = QString("%1:%2").arg(client->peerAddress().toString()).arg(client->peerPort());
         statusLabel_->setText(QString("Client connected: %1").arg(clientInfo));
         
@@ -72,6 +73,7 @@ private slots:
         if (client) {
             QString clientInfo = QString("%1:%2").arg(client->peerAddress().toString()).arg(client->peerPort());
             clients_.removeAll(client);
+            clientBusyState_.remove(client);  // Remove busy state tracking
             client->deleteLater();
             updateClientList();
             statusLabel_->setText(QString("Client disconnected: %1").arg(clientInfo));
@@ -90,17 +92,26 @@ private slots:
             // Client sending status update
             QString status = obj["status"].toString();
             int progress = obj["progress"].toInt();
-            
+
             QString clientInfo = QString("%1:%2").arg(client->peerAddress().toString()).arg(client->peerPort());
-            statusLabel_->setText(QString("%1 - %2 (%3%)").arg(clientInfo).arg(status).arg(progress));
+
+            // Update busy state
+            if (status == "busy") {
+                clientBusyState_[client] = true;
+                statusLabel_->setText(QString("%1 - Typing started").arg(clientInfo));
+            } else if (status == "free") {
+                clientBusyState_[client] = false;
+                statusLabel_->setText(QString("%1 - Completed").arg(clientInfo));
+            } else {
+                // General status update with progress
+                statusLabel_->setText(QString("%1 - %2 (%3%)").arg(clientInfo).arg(status).arg(progress));
+            }
+
+            updateClientList();
+            updateButtonState();
         }
         else if (type == "ready") {
             statusLabel_->setText("Client is ready");
-        }
-        else if (type == "completed") {
-            statusLabel_->setText("Typing completed on client");
-            startButton_->setEnabled(true);
-            stopButton_->setEnabled(false);
         }
     }
     
@@ -137,22 +148,34 @@ private slots:
         command["settings"] = settings;
         
         QString json = QJsonDocument(command).toJson(QJsonDocument::Compact);
-        
-        // Send to selected client or all clients
+
+        // Send to selected client or all free clients
         int selectedRow = clientList_->currentRow();
         if (selectedRow >= 0 && selectedRow < clients_.size()) {
-            clients_[selectedRow]->sendTextMessage(json);
-            statusLabel_->setText("Command sent to selected client");
-        } else {
-            // Send to all clients
-            for (QWebSocket *client : clients_) {
-                client->sendTextMessage(json);
+            QWebSocket *selectedClient = clients_[selectedRow];
+            if (!clientBusyState_.value(selectedClient, false)) {
+                selectedClient->sendTextMessage(json);
+                statusLabel_->setText("Command sent to selected client");
+                stopButton_->setEnabled(true);
+            } else {
+                statusLabel_->setText("Error: Selected client is busy!");
             }
-            statusLabel_->setText(QString("Command sent to %1 client(s)").arg(clients_.size()));
+        } else {
+            // Send to all free clients
+            int sentCount = 0;
+            for (QWebSocket *client : clients_) {
+                if (!clientBusyState_.value(client, false)) {
+                    client->sendTextMessage(json);
+                    sentCount++;
+                }
+            }
+            if (sentCount > 0) {
+                statusLabel_->setText(QString("Command sent to %1 free client(s)").arg(sentCount));
+                stopButton_->setEnabled(true);
+            } else {
+                statusLabel_->setText("Error: All clients are busy!");
+            }
         }
-        
-        startButton_->setEnabled(false);
-        stopButton_->setEnabled(true);
     }
     
     void stopTyping() {
@@ -328,14 +351,32 @@ private:
         clientList_->clear();
         for (QWebSocket *client : clients_) {
             QString info = QString("%1:%2").arg(client->peerAddress().toString()).arg(client->peerPort());
-            clientList_->addItem(info);
+            bool isBusy = clientBusyState_.value(client, false);
+            QString icon = isBusy ? "🔴" : "🟢";  // Red for busy, green for free
+            QString displayText = QString("%1 %2").arg(icon).arg(info);
+            clientList_->addItem(displayText);
         }
-        
+
+        updateButtonState();
+    }
+
+    void updateButtonState() {
         if (clients_.isEmpty()) {
             startButton_->setEnabled(false);
-            statusLabel_->setText("No clients connected");
+            stopButton_->setEnabled(false);
+            if (statusLabel_->text().isEmpty() || statusLabel_->text() == "Client is ready") {
+                statusLabel_->setText("No clients connected");
+            }
         } else {
-            startButton_->setEnabled(true);
+            // Enable start button if at least one client is free
+            bool anyFree = false;
+            for (QWebSocket *client : clients_) {
+                if (!clientBusyState_.value(client, false)) {
+                    anyFree = true;
+                    break;
+                }
+            }
+            startButton_->setEnabled(anyFree);
         }
     }
     
@@ -357,6 +398,7 @@ private:
 private:
     QWebSocketServer *wsServer_ = nullptr;
     QList<QWebSocket*> clients_;
+    QMap<QWebSocket*, bool> clientBusyState_;  // true = busy, false = free
     
     QPlainTextEdit *textEdit_ = nullptr;
     QPushButton *startButton_ = nullptr;

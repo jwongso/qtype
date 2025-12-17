@@ -466,7 +466,8 @@ int main(int argc, char* argv[]) {
     
     TypingEngine engine;
     std::atomic<bool> shouldStop(false);
-    
+    std::atomic<bool> isBusy(false);
+
     std::cout << "Client ready. Waiting for commands from server...\n";
     std::cout << "Press Ctrl+C to exit\n\n";
     
@@ -478,6 +479,12 @@ int main(int argc, char* argv[]) {
             
             // Parse JSON (simplified - use real JSON library)
             if (message.find("\"type\":\"start_typing\"") != std::string::npos) {
+                // Check if already busy
+                if (isBusy) {
+                    std::cout << "Client is busy, ignoring command\n";
+                    continue;
+                }
+
                 // Extract text (very basic parsing)
                 size_t textPos = message.find("\"text\":\"");
                 if (textPos != std::string::npos) {
@@ -494,11 +501,16 @@ int main(int argc, char* argv[]) {
 
                     std::cout << "Text to type: " << text.length() << " characters\n";
 
+                    // Set busy state and notify server
+                    isBusy = true;
+                    ws.sendMessage(R"({"type":"status","status":"busy"})");
+
                     // Start typing in separate thread
-                    std::thread([&engine, text, &shouldStop, &ws]() {
+                    std::thread([&engine, text, &shouldStop, &ws, &isBusy]() {
                         engine.typeText(text, shouldStop);
-                        // Send completion message to server
-                        ws.sendMessage(R"({"type":"completed"})");
+                        // Mark as free and notify server
+                        isBusy = false;
+                        ws.sendMessage(R"({"type":"status","status":"free"})");
                     }).detach();
                 }
             }
