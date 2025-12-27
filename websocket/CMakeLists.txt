@@ -36,27 +36,37 @@ if(BUILD_SERVER)
 endif()
 
 # ============================================================================
-# Client (macOS/Windows - Console, no Qt)
+# Client (Cross-Platform - Console, no Qt)
 # ============================================================================
 
 if(BUILD_CLIENT)
-    find_package(nlohmann_json CONFIG REQUIRED)
     add_executable(qtype_client qtype_client.cpp)
 
-    target_link_libraries(qtype_client
-    PRIVATE
-        nlohmann_json::nlohmann_json
-    )
-    
-    # Platform-specific
+    # Platform-specific libraries
     if(APPLE)
         target_link_libraries(qtype_client
             PRIVATE
                 "-framework ApplicationServices"
                 "-framework CoreFoundation"
         )
+        message(STATUS "Building qtype_client for MacOS (CGEvent API)")
+    elseif(UNIX AND NOT APPLE)
+        # Linux/WSL
+        find_package(X11 REQUIRED)
+        if(NOT X11_XTest_FOUND)
+            message(FATAL_ERROR "XTest extension not found. Install libxtst-dev: sudo apt-get install libxtst-dev")
+        endif()
+        target_link_libraries(qtype_client
+            PRIVATE
+                X11::X11
+                X11::Xt
+                X11::Xext
+                X11::Xtst
+        )
+        message(STATUS "Building qtype_client for Linux/WSL (X11/XTest)")
     elseif(WIN32)
-        # Windows version would go here
+        # Native Windows would use Windows API
+        message(WARNING "Native Windows build not fully implemented yet. Use WSL with X11 instead.")
     endif()
     
     message(STATUS "Building qtype_client (Console WebSocket Client)")

@@ -1,7 +1,16 @@
-// qtype_client.cpp - macOS Console Client with WebSocket
-// Compile: clang++ qtype_client.cpp -o qtype_client -std=c++17 -framework ApplicationServices -framework CoreFoundation -lcurl
+// qtype_client.cpp - Cross-Platform Console Client with WebSocket
+// Compile (MacOS): clang++ qtype_client.cpp -o qtype_client -std=c++17 -framework ApplicationServices -framework CoreFoundation
+// Compile (Linux): g++ qtype_client.cpp -o qtype_client -std=c++17 -lX11 -lXtst
+// Compile (WSL): See Linux or use xdotool
 
+#ifdef __APPLE__
 #include <ApplicationServices/ApplicationServices.h>
+#elif defined(__linux__)
+#include <X11/Xlib.h>
+#include <X11/extensions/XTest.h>
+#include <X11/keysym.h>
+#endif
+
 #include <iostream>
 #include <string>
 #include <thread>
@@ -9,8 +18,6 @@
 #include <random>
 #include <cmath>
 #include <atomic>
-#include <curl/curl.h>
-#include <nlohmann/json.hpp>  // Or use simple JSON parsing
 
 // Simple WebSocket client using libwebsockets or raw socket
 // For simplicity, I'll create a polling HTTP-based version first
@@ -119,12 +126,14 @@ public:
 };
 
 // ============================================================================
-// macOS Keyboard Simulator
+// Cross-Platform Keyboard Simulator
 // ============================================================================
 
-class MacKeyboardSimulator {
+class KeyboardSimulator {
 public:
-    void typeCharacter(UniChar c, int holdTimeMs) {
+#ifdef __APPLE__
+    void typeCharacter(unsigned char c, int holdTimeMs) {
+        UniChar uc = c;
         CGEventRef down = nullptr;
         CGEventRef up = nullptr;
         
@@ -158,8 +167,8 @@ public:
         } else {
             down = CGEventCreateKeyboardEvent(nullptr, 0, true);
             up = CGEventCreateKeyboardEvent(nullptr, 0, false);
-            CGEventKeyboardSetUnicodeString(down, 1, &c);
-            CGEventKeyboardSetUnicodeString(up, 1, &c);
+            CGEventKeyboardSetUnicodeString(down, 1, &uc);
+            CGEventKeyboardSetUnicodeString(up, 1, &uc);
             
             CGEventPost(kCGHIDEventTap, down);
             std::this_thread::sleep_for(std::chrono::milliseconds(holdTimeMs));
@@ -173,6 +182,154 @@ public:
     void releaseAllKeys() {
         // Not needed on macOS typically
     }
+    
+#elif defined(__linux__)
+    KeyboardSimulator() {
+        display = XOpenDisplay(nullptr);
+        if (!display) {
+            std::cerr << "Error: Cannot open X display. Make sure DISPLAY is set.\n";
+            std::cerr << "For WSL, you may need to install and run an X server (VcXsrv, Xming, etc.)\n";
+            std::cerr << "Or use: export DISPLAY=:0\n";
+        }
+    }
+    
+    ~KeyboardSimulator() {
+        if (display) {
+            XCloseDisplay(display);
+        }
+    }
+    
+    void typeCharacter(unsigned char c, int holdTimeMs) {
+        if (!display) return;
+        
+        if (c == '\n') {
+            // Send Shift+Enter
+            KeyCode shift = XKeysymToKeycode(display, XK_Shift_L);
+            KeyCode enter = XKeysymToKeycode(display, XK_Return);
+            
+            XTestFakeKeyEvent(display, shift, True, 0);
+            XFlush(display);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            
+            XTestFakeKeyEvent(display, enter, True, 0);
+            XFlush(display);
+            std::this_thread::sleep_for(std::chrono::milliseconds(holdTimeMs));
+            XTestFakeKeyEvent(display, enter, False, 0);
+            XFlush(display);
+            
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            XTestFakeKeyEvent(display, shift, False, 0);
+            XFlush(display);
+            return;
+        }
+        
+        // Convert character to KeySym
+        KeySym keysym = charToKeySym(c);
+        if (keysym == NoSymbol) {
+            std::cerr << "Warning: Cannot map character '" << c << "' (code: " << (int)c << ")\n";
+            return;
+        }
+        
+        KeyCode keycode = XKeysymToKeycode(display, keysym);
+        if (keycode == 0) {
+            std::cerr << "Warning: No keycode for character '" << c << "'\n";
+            return;
+        }
+        
+        // Check if shift is needed
+        bool needShift = std::isupper(c) || isShiftChar(c);
+        
+        if (needShift) {
+            KeyCode shift = XKeysymToKeycode(display, XK_Shift_L);
+            XTestFakeKeyEvent(display, shift, True, 0);
+            XFlush(display);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        
+        XTestFakeKeyEvent(display, keycode, True, 0);
+        XFlush(display);
+        std::this_thread::sleep_for(std::chrono::milliseconds(holdTimeMs));
+        XTestFakeKeyEvent(display, keycode, False, 0);
+        XFlush(display);
+        
+        if (needShift) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            KeyCode shift = XKeysymToKeycode(display, XK_Shift_L);
+            XTestFakeKeyEvent(display, shift, False, 0);
+            XFlush(display);
+        }
+    }
+    
+    void releaseAllKeys() {
+        // Not typically needed for Linux
+    }
+    
+private:
+    Display* display = nullptr;
+    
+    KeySym charToKeySym(unsigned char c) {
+        // Handle special characters
+        switch (c) {
+            case ' ': return XK_space;
+            case '!': return XK_exclam;
+            case '"': return XK_quotedbl;
+            case '#': return XK_numbersign;
+            case '$': return XK_dollar;
+            case '%': return XK_percent;
+            case '&': return XK_ampersand;
+            case '\'': return XK_apostrophe;
+            case '(': return XK_parenleft;
+            case ')': return XK_parenright;
+            case '*': return XK_asterisk;
+            case '+': return XK_plus;
+            case ',': return XK_comma;
+            case '-': return XK_minus;
+            case '.': return XK_period;
+            case '/': return XK_slash;
+            case ':': return XK_colon;
+            case ';': return XK_semicolon;
+            case '<': return XK_less;
+            case '=': return XK_equal;
+            case '>': return XK_greater;
+            case '?': return XK_question;
+            case '@': return XK_at;
+            case '[': return XK_bracketleft;
+            case '\\': return XK_backslash;
+            case ']': return XK_bracketright;
+            case '^': return XK_asciicircum;
+            case '_': return XK_underscore;
+            case '`': return XK_grave;
+            case '{': return XK_braceleft;
+            case '|': return XK_bar;
+            case '}': return XK_braceright;
+            case '~': return XK_asciitilde;
+            case '\t': return XK_Tab;
+            case '\r': return XK_Return;
+        }
+        
+        // Handle alphanumeric
+        if (c >= 'a' && c <= 'z') return XK_a + (c - 'a');
+        if (c >= 'A' && c <= 'Z') return XK_a + (c - 'A');
+        if (c >= '0' && c <= '9') return XK_0 + (c - '0');
+        
+        return NoSymbol;
+    }
+    
+    bool isShiftChar(unsigned char c) {
+        return (c == '!' || c == '@' || c == '#' || c == '$' || c == '%' ||
+                c == '^' || c == '&' || c == '*' || c == '(' || c == ')' ||
+                c == '_' || c == '+' || c == '{' || c == '}' || c == '|' ||
+                c == ':' || c == '"' || c == '<' || c == '>' || c == '?' ||
+                c == '~');
+    }
+#else
+    void typeCharacter(unsigned char c, int holdTimeMs) {
+        std::cerr << "Error: Keyboard simulation not implemented for this platform\n";
+    }
+    
+    void releaseAllKeys() {
+    }
+#endif
 };
 
 // ============================================================================
@@ -212,7 +369,7 @@ public:
         for (char c : text) {
             if (shouldStop) break;
             
-            UniChar uc = static_cast<unsigned char>(c);
+            unsigned char uc = static_cast<unsigned char>(c);
             int holdTime = generateHoldTime(uc);
             simulator_.typeCharacter(uc, holdTime);
             
@@ -234,7 +391,7 @@ public:
     }
     
 private:
-    int calculateDelay(UniChar c) {
+    int calculateDelay(unsigned char c) {
         double range = maxDelayMs_ - minDelayMs_;
         double gammaValue = RandomGenerator::gamma(2.0, 1.0);
         double normalized = std::min(gammaValue / 6.0, 1.0);
@@ -265,7 +422,7 @@ private:
         return std::max(15, std::min(int(delay), 8000));
     }
     
-    int generateHoldTime(UniChar c) {
+    int generateHoldTime(unsigned char c) {
         double hold = RandomGenerator::gamma(2.5, 20.0);
         if (std::isupper(c)) hold *= 1.2;
         hold *= (0.9 + RandomGenerator::uniform() * 0.2);
@@ -290,7 +447,7 @@ private:
         return false;
     }
     
-    MacKeyboardSimulator simulator_;
+    KeyboardSimulator simulator_;
     double rhythmPhase_;
     double fatigueFactor_;
     int burstRemaining_;
@@ -500,6 +657,37 @@ int main(int argc, char* argv[]) {
                     std::string text = unescapeJsonString(rawText);
 
                     std::cout << "Text to type: " << text.length() << " characters\n";
+
+                    // Extract settings (minDelay and maxDelay)
+                    int minDelay = 120;  // defaults
+                    int maxDelay = 2000;
+                    
+                    size_t minDelayPos = message.find("\"minDelay\":");
+                    if (minDelayPos != std::string::npos) {
+                        size_t numStart = minDelayPos + 11;
+                        size_t numEnd = message.find_first_of(",}", numStart);
+                        if (numEnd != std::string::npos) {
+                            std::string minDelayStr = message.substr(numStart, numEnd - numStart);
+                            try {
+                                minDelay = std::stoi(minDelayStr);
+                            } catch (...) {}
+                        }
+                    }
+                    
+                    size_t maxDelayPos = message.find("\"maxDelay\":");
+                    if (maxDelayPos != std::string::npos) {
+                        size_t numStart = maxDelayPos + 11;
+                        size_t numEnd = message.find_first_of(",}", numStart);
+                        if (numEnd != std::string::npos) {
+                            std::string maxDelayStr = message.substr(numStart, numEnd - numStart);
+                            try {
+                                maxDelay = std::stoi(maxDelayStr);
+                            } catch (...) {}
+                        }
+                    }
+                    
+                    std::cout << "Using delay range: " << minDelay << "ms - " << maxDelay << "ms\n";
+                    engine.setDelayRange(minDelay, maxDelay);
 
                     // Reset stop flag and set busy state
                     shouldStop = false;
