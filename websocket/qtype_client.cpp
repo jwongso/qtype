@@ -1,6 +1,8 @@
 // qtype_client.cpp - Cross-Platform Console Client with WebSocket
 // Compile (MacOS): clang++ qtype_client.cpp -o qtype_client -std=c++17 -framework ApplicationServices -framework CoreFoundation
 // Compile (Linux): g++ qtype_client.cpp -o qtype_client -std=c++17 -lX11 -lXtst
+// Compile (Windows): cl qtype_client.cpp /EHsc /std:c++17 /Fe:qtype_client.exe
+//            or: g++ qtype_client.cpp -o qtype_client.exe -std=c++17 -static-libgcc -static-libstdc++
 // Compile (WSL): See Linux or use xdotool
 
 #ifdef __APPLE__
@@ -9,6 +11,8 @@
 #include <X11/Xlib.h>
 #include <X11/extensions/XTest.h>
 #include <X11/keysym.h>
+#elif defined(_WIN32) || defined(_WIN64)
+#include <windows.h>
 #endif
 
 #include <iostream>
@@ -200,6 +204,16 @@ public:
         }
     }
     
+    void pressBackspace() {
+        CGEventRef down = CGEventCreateKeyboardEvent(nullptr, 51, true);  // kVK_Delete
+        CGEventRef up = CGEventCreateKeyboardEvent(nullptr, 51, false);
+        CGEventPost(kCGHIDEventTap, down);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        CGEventPost(kCGHIDEventTap, up);
+        CFRelease(down);
+        CFRelease(up);
+    }
+    
     void releaseAllKeys() {
         // Not needed on macOS typically
     }
@@ -281,6 +295,17 @@ public:
         }
     }
     
+    void pressBackspace() {
+        if (!display) return;
+        
+        KeyCode backspace = XKeysymToKeycode(display, XK_BackSpace);
+        XTestFakeKeyEvent(display, backspace, True, 0);
+        XFlush(display);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        XTestFakeKeyEvent(display, backspace, False, 0);
+        XFlush(display);
+    }
+    
     void releaseAllKeys() {
         // Not typically needed for Linux
     }
@@ -343,9 +368,94 @@ private:
                 c == ':' || c == '"' || c == '<' || c == '>' || c == '?' ||
                 c == '~');
     }
+#elif defined(_WIN32) || defined(_WIN64)
+    // Windows implementation using SendInput
+    void typeCharacter(unsigned char c, int holdTimeMs) {
+        if (c == '\n') {
+            // Send Shift+Enter on Windows
+            INPUT shiftDown = {0};
+            shiftDown.type = INPUT_KEYBOARD;
+            shiftDown.ki.wVk = VK_SHIFT;
+            SendInput(1, &shiftDown, sizeof(INPUT));
+            
+            Sleep(10);
+            
+            INPUT enterDown = {0};
+            enterDown.type = INPUT_KEYBOARD;
+            enterDown.ki.wVk = VK_RETURN;
+            SendInput(1, &enterDown, sizeof(INPUT));
+            
+            Sleep(holdTimeMs);
+            
+            INPUT enterUp = {0};
+            enterUp.type = INPUT_KEYBOARD;
+            enterUp.ki.wVk = VK_RETURN;
+            enterUp.ki.dwFlags = KEYEVENTF_KEYUP;
+            SendInput(1, &enterUp, sizeof(INPUT));
+            
+            Sleep(10);
+            
+            INPUT shiftUp = {0};
+            shiftUp.type = INPUT_KEYBOARD;
+            shiftUp.ki.wVk = VK_SHIFT;
+            shiftUp.ki.dwFlags = KEYEVENTF_KEYUP;
+            SendInput(1, &shiftUp, sizeof(INPUT));
+            return;
+        }
+        
+        // Use Unicode input for all characters
+        wchar_t wc = static_cast<unsigned char>(c);
+        
+        // Key down
+        INPUT down = {0};
+        down.type = INPUT_KEYBOARD;
+        down.ki.wScan = wc;
+        down.ki.dwFlags = KEYEVENTF_UNICODE;
+        SendInput(1, &down, sizeof(INPUT));
+        
+        Sleep(holdTimeMs);
+        
+        // Key up
+        INPUT up = {0};
+        up.type = INPUT_KEYBOARD;
+        up.ki.wScan = wc;
+        up.ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+        SendInput(1, &up, sizeof(INPUT));
+    }
+    
+    void pressBackspace() {
+        INPUT down = {0};
+        down.type = INPUT_KEYBOARD;
+        down.ki.wVk = VK_BACK;
+        SendInput(1, &down, sizeof(INPUT));
+        
+        Sleep(10);
+        
+        INPUT up = {0};
+        up.type = INPUT_KEYBOARD;
+        up.ki.wVk = VK_BACK;
+        up.ki.dwFlags = KEYEVENTF_KEYUP;
+        SendInput(1, &up, sizeof(INPUT));
+    }
+    
+    void releaseAllKeys() {
+        // Release common modifier keys on Windows
+        WORD modifiers[] = {VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN};
+        for (WORD vk : modifiers) {
+            INPUT up = {0};
+            up.type = INPUT_KEYBOARD;
+            up.ki.wVk = vk;
+            up.ki.dwFlags = KEYEVENTF_KEYUP;
+            SendInput(1, &up, sizeof(INPUT));
+        }
+    }
 #else
     void typeCharacter(unsigned char c, int holdTimeMs) {
         std::cerr << "Error: Keyboard simulation not implemented for this platform\n";
+    }
+    
+    void pressBackspace() {
+        std::cerr << "Error: Backspace not implemented for this platform\n";
     }
     
     void releaseAllKeys() {
