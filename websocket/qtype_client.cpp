@@ -5,14 +5,21 @@
 //            or: g++ qtype_client.cpp -o qtype_client.exe -std=c++17 -static-libgcc -static-libstdc++
 // Compile (WSL): See Linux or use xdotool
 
+// Platform-specific includes - Windows first to avoid conflicts
+#if defined(_WIN32) || defined(_WIN64)
+#define WIN32_LEAN_AND_MEAN
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#pragma comment(lib, "ws2_32.lib")
+#endif
+
 #ifdef __APPLE__
 #include <ApplicationServices/ApplicationServices.h>
 #elif defined(__linux__)
 #include <X11/Xlib.h>
 #include <X11/extensions/XTest.h>
 #include <X11/keysym.h>
-#elif defined(_WIN32) || defined(_WIN64)
-#include <windows.h>
 #endif
 
 #include <iostream>
@@ -592,17 +599,38 @@ private:
 // Simple WebSocket Client (using raw TCP + WebSocket handshake)
 // ============================================================================
 
+#if !defined(_WIN32) && !defined(_WIN64)
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <fcntl.h>
+#endif
 
 class WebSocketClient {
 public:
+#if defined(_WIN32) || defined(_WIN64)
+    using SocketType = SOCKET;
+    static constexpr SocketType INVALID_SOCKET_VALUE = INVALID_SOCKET;
+#else
+    using SocketType = int;
+    static constexpr SocketType INVALID_SOCKET_VALUE = -1;
+#endif
+
+    WebSocketClient() {
+#if defined(_WIN32) || defined(_WIN64)
+        WSADATA wsaData;
+        WSAStartup(MAKEWORD(2, 2), &wsaData);
+#endif
+    }
+    
     bool connect(const std::string& host, int port) {
         sockfd_ = socket(AF_INET, SOCK_STREAM, 0);
+#if defined(_WIN32) || defined(_WIN64)
+        if (sockfd_ == INVALID_SOCKET) {
+#else
         if (sockfd_ < 0) {
+#endif
             std::cerr << "Error creating socket\n";
             return false;
         }
@@ -611,7 +639,12 @@ public:
         server_addr.sin_family = AF_INET;
         server_addr.sin_port = htons(port);
         
+#if defined(_WIN32) || defined(_WIN64)
+        server_addr.sin_addr.s_addr = inet_addr(host.c_str());
+        if (server_addr.sin_addr.s_addr == INADDR_NONE) {
+#else
         if (inet_pton(AF_INET, host.c_str(), &server_addr.sin_addr) <= 0) {
+#endif
             std::cerr << "Invalid address\n";
             return false;
         }
@@ -638,7 +671,12 @@ public:
         recv(sockfd_, buffer, sizeof(buffer), 0);
         
         // Set non-blocking
+#if defined(_WIN32) || defined(_WIN64)
+        u_long mode = 1;
+        ioctlsocket(sockfd_, FIONBIO, &mode);
+#else
         fcntl(sockfd_, F_SETFL, O_NONBLOCK);
+#endif
         
         std::cout << "Connected to server\n";
         return true;
@@ -694,13 +732,20 @@ public:
     }
     
     ~WebSocketClient() {
+#if defined(_WIN32) || defined(_WIN64)
+        if (sockfd_ != INVALID_SOCKET) {
+            closesocket(sockfd_);
+            WSACleanup();
+        }
+#else
         if (sockfd_ >= 0) {
             close(sockfd_);
         }
+#endif
     }
     
 private:
-    int sockfd_ = -1;
+    SocketType sockfd_ = INVALID_SOCKET_VALUE;
 };
 
 // ============================================================================

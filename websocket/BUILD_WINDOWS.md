@@ -9,9 +9,15 @@
 ### Install MinGW-w64
 Download from: https://www.mingw-w64.org/ or use MSYS2
 
+**Important:** Use the POSIX threading model version of MinGW (not win32 threads).
+
 ### Compile
 ```bash
+# On Windows with MinGW
 g++ qtype_client.cpp -o qtype_client.exe -std=c++17 -static-libgcc -static-libstdc++ -lws2_32
+
+# Cross-compile from Linux
+x86_64-w64-mingw32-g++-posix qtype_client.cpp -o qtype_client.exe -std=c++17 -static-libgcc -static-libstdc++ -lws2_32
 ```
 
 ## Option 2: Using Visual Studio (MSVC)
