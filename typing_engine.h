@@ -108,6 +108,13 @@ struct DelayRange {
     int maxMs = 180;
 };
 
+enum class KeyboardLayoutType {
+    US_QWERTY,
+    UK_QWERTY,
+    GERMAN_QWERTZ,
+    FRENCH_AZERTY
+};
+
 // ============================================================================
 // Random Number Generator
 // ============================================================================
@@ -126,11 +133,16 @@ public:
 
 class KeyboardLayout {
 public:
-    static QChar getNeighborKey(QChar c);
-    static bool isLetter(QChar c);
+    explicit KeyboardLayout(KeyboardLayoutType type = KeyboardLayoutType::US_QWERTY);
+    
+    QChar getNeighborKey(QChar c) const;
+    bool isLetter(QChar c) const;
     
 private:
-    static const QString rows[3];
+    KeyboardLayoutType type_;
+    QString rows_[3];
+    
+    void initializeLayout();
 };
 
 // ============================================================================
@@ -177,13 +189,15 @@ struct ImperfectionResult {
 
 class ImperfectionGenerator {
 public:
-    ImperfectionGenerator(const ImperfectionSettings& settings);
+    ImperfectionGenerator(const ImperfectionSettings& settings, 
+                          const KeyboardLayout& layout);
     
     void reset();
     ImperfectionResult processCharacter(QChar original);
     
 private:
     ImperfectionSettings settings_;
+    const KeyboardLayout& layout_;
     
     int charsTypedTotal_;
     int charsSinceLastTypo_;
@@ -283,7 +297,8 @@ public:
                  IMouseSimulator* mouseSimulator,
                  const TimingProfile& profile,
                  const DelayRange& delays,
-                 const ImperfectionSettings& imperfections);
+                 const ImperfectionSettings& imperfections,
+                 KeyboardLayoutType layoutType = KeyboardLayoutType::US_QWERTY);
     
     ~TypingEngine();
     
@@ -305,6 +320,7 @@ private:
     TimingProfile profile_;
     DelayRange delays_;
     ImperfectionSettings imperfections_;
+    KeyboardLayout layout_;
     
     std::unique_ptr<TextChunker> chunker_;
     std::unique_ptr<TypingDynamics> dynamics_;
@@ -447,13 +463,38 @@ inline double RandomGenerator::uniform() {
 }
 
 // KeyboardLayout
-inline const QString KeyboardLayout::rows[3] = {
-    "qwertyuiop",
-    "asdfghjkl",
-    "zxcvbnm"
-};
+inline KeyboardLayout::KeyboardLayout(KeyboardLayoutType type)
+    : type_(type)
+{
+    initializeLayout();
+}
 
-inline QChar KeyboardLayout::getNeighborKey(QChar c) {
+inline void KeyboardLayout::initializeLayout() {
+    switch (type_) {
+        case KeyboardLayoutType::US_QWERTY:
+            rows_[0] = "qwertyuiop";
+            rows_[1] = "asdfghjkl";
+            rows_[2] = "zxcvbnm";
+            break;
+        case KeyboardLayoutType::UK_QWERTY:
+            rows_[0] = "qwertyuiop";
+            rows_[1] = "asdfghjkl";
+            rows_[2] = "zxcvbnm";
+            break;
+        case KeyboardLayoutType::GERMAN_QWERTZ:
+            rows_[0] = "qwertzuiop";
+            rows_[1] = "asdfghjkl";
+            rows_[2] = "yxcvbnm";
+            break;
+        case KeyboardLayoutType::FRENCH_AZERTY:
+            rows_[0] = "azertyuiop";
+            rows_[1] = "qsdfghjklm";
+            rows_[2] = "wxcvbn";
+            break;
+    }
+}
+
+inline QChar KeyboardLayout::getNeighborKey(QChar c) const {
     bool upper = c.isUpper();
     QChar lower = c.toLower();
     
@@ -461,7 +502,7 @@ inline QChar KeyboardLayout::getNeighborKey(QChar c) {
     int colIndex = -1;
     
     for (int r = 0; r < 3; ++r) {
-        int idx = rows[r].indexOf(lower);
+        int idx = rows_[r].indexOf(lower);
         if (idx != -1) {
             rowIndex = r;
             colIndex = idx;
@@ -475,7 +516,7 @@ inline QChar KeyboardLayout::getNeighborKey(QChar c) {
     
     auto addIfValid = [&](int r, int col) {
         if (r < 0 || r >= 3) return;
-        const QString &row = rows[r];
+        const QString &row = rows_[r];
         if (col < 0 || col >= row.size()) return;
         QChar ch = row[col];
         if (!candidates.contains(ch))
@@ -497,7 +538,7 @@ inline QChar KeyboardLayout::getNeighborKey(QChar c) {
     return upper ? out.toUpper() : out;
 }
 
-inline bool KeyboardLayout::isLetter(QChar c) {
+inline bool KeyboardLayout::isLetter(QChar c) const {
     return c.isLetter();
 }
 
@@ -631,8 +672,10 @@ inline int TypingDynamics::generateHoldTime(QChar ch) {
 }
 
 // ImperfectionGenerator
-inline ImperfectionGenerator::ImperfectionGenerator(const ImperfectionSettings& settings)
+inline ImperfectionGenerator::ImperfectionGenerator(const ImperfectionSettings& settings,
+                                                     const KeyboardLayout& layout)
     : settings_(settings)
+    , layout_(layout)
     , charsTypedTotal_(0)
     , charsSinceLastTypo_(0)
     , charsSinceLastDouble_(0)
@@ -674,8 +717,8 @@ inline ImperfectionResult ImperfectionGenerator::processCharacter(QChar original
     charsSinceLastTypo_++;
     charsSinceLastDouble_++;
     
-    if (charsSinceLastTypo_ >= nextTypoAt_ && KeyboardLayout::isLetter(original)) {
-        result.character = KeyboardLayout::getNeighborKey(original);
+    if (charsSinceLastTypo_ >= nextTypoAt_ && layout_.isLetter(original)) {
+        result.character = layout_.getNeighborKey(original);
         charsSinceLastTypo_ = 0;
         scheduleNextTypo();
         
@@ -872,12 +915,14 @@ inline TypingEngine::TypingEngine(IKeyboardSimulator* simulator,
                            IMouseSimulator* mouseSimulator,
                            const TimingProfile& profile,
                            const DelayRange& delays,
-                           const ImperfectionSettings& imperfections)
+                           const ImperfectionSettings& imperfections,
+                           KeyboardLayoutType layoutType)
     : simulator_(simulator)
     , mouseSimulator_(mouseSimulator)
     , profile_(profile)
     , delays_(delays)
     , imperfections_(imperfections)
+    , layout_(layoutType)
     , chunker_(nullptr)
     , dynamics_(nullptr)
     , imperfectionGen_(nullptr)
@@ -896,7 +941,7 @@ inline TypingEngine::~TypingEngine() {
 inline void TypingEngine::setText(const QString& text) {
     chunker_ = std::make_unique<TextChunker>(text);
     dynamics_ = std::make_unique<TypingDynamics>(profile_, delays_);
-    imperfectionGen_ = std::make_unique<ImperfectionGenerator>(imperfections_);
+    imperfectionGen_ = std::make_unique<ImperfectionGenerator>(imperfections_, layout_);
     wordsSinceBreak_ = 0;
     charsSinceMouseMove_ = 0;
     skippedCharCount_ = 0;

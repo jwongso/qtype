@@ -94,8 +94,10 @@ private slots:
         imperfections.enableAutoCorrection = autoCorrectCheck_->isChecked();
         imperfections.correctionProbability = autoCorrectProbSpin_->value();
         
+        KeyboardLayoutType layout = getSelectedLayout();
+        
         delete engine_;
-        engine_ = new TypingEngine(simulator_, mouseSimulator_, profile, delays, imperfections);
+        engine_ = new TypingEngine(simulator_, mouseSimulator_, profile, delays, imperfections, layout);
         engine_->setText(text);
         engine_->setMouseMovementEnabled(mouseMovementCheck_->isChecked());
         
@@ -247,6 +249,18 @@ private:
         
         profileLayout->addWidget(new QLabel("Behavior:"));
         profileLayout->addWidget(profileCombo_);
+        
+        profileLayout->addSpacing(10);
+        
+        layoutCombo_ = new QComboBox(this);
+        layoutCombo_->addItem("🇺🇸 US QWERTY");
+        layoutCombo_->addItem("🇬🇧 UK QWERTY");
+        layoutCombo_->addItem("🇩🇪 German QWERTZ");
+        layoutCombo_->addItem("🇫🇷 French AZERTY");
+        layoutCombo_->setToolTip("Choose your keyboard layout for accurate typo simulation");
+        
+        profileLayout->addWidget(new QLabel("Keyboard:"));
+        profileLayout->addWidget(layoutCombo_);
         topLayout->addWidget(profileGroup);
         
         // Delay
@@ -392,6 +406,15 @@ private:
         }
     }
     
+    KeyboardLayoutType getSelectedLayout() {
+        switch (layoutCombo_->currentIndex()) {
+            case 1: return KeyboardLayoutType::UK_QWERTY;
+            case 2: return KeyboardLayoutType::GERMAN_QWERTZ;
+            case 3: return KeyboardLayoutType::FRENCH_AZERTY;
+            default: return KeyboardLayoutType::US_QWERTY;
+        }
+    }
+    
     void keyPressEvent(QKeyEvent *e) override {
         if (e->key() == Qt::Key_Escape && isTyping_) {
             stopTyping();
@@ -410,6 +433,7 @@ private:
     QSpinBox *minDelaySpinBox_ = nullptr;
     QSpinBox *maxDelaySpinBox_ = nullptr;
     QComboBox *profileCombo_ = nullptr;
+    QComboBox *layoutCombo_ = nullptr;
     
     QCheckBox *typoCheck_ = nullptr;
     QSpinBox *typoMinSpin_ = nullptr;
