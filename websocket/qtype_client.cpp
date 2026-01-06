@@ -19,6 +19,27 @@
 #include <cmath>
 #include <atomic>
 
+// ============================================================================
+// Constants
+// ============================================================================
+
+namespace TypingConstants {
+    // Math constants
+    constexpr double TWO_PI = 6.28318530718;
+    
+    // Timing bounds
+    constexpr int MIN_DELAY_MS = 15;
+    constexpr int MAX_DELAY_MS = 8000;
+    constexpr int MIN_HOLD_TIME_MS = 40;
+    constexpr int MAX_HOLD_TIME_MS = 180;
+    
+    // Fatigue calculation
+    constexpr int CHARS_BEFORE_FATIGUE_UPDATE = 50;
+    constexpr int CHARS_FOR_MAX_FATIGUE = 1000;
+    constexpr double MAX_FATIGUE_FACTOR = 0.25;
+    constexpr double NOISE_LEVEL = 0.15;
+}
+
 // Simple WebSocket client using libwebsockets or raw socket
 // For simplicity, I'll create a polling HTTP-based version first
 // Full WebSocket implementation below
@@ -88,8 +109,8 @@ public:
     }
     
     static double normal(double mean, double stddev) {
-        static bool hasSpare = false;
-        static double spare;
+        thread_local bool hasSpare = false;
+        thread_local double spare;
         
         if (hasSpare) {
             hasSpare = false;
@@ -339,7 +360,7 @@ private:
 class TypingEngine {
 public:
     TypingEngine() 
-        : rhythmPhase_(RandomGenerator::uniform() * 6.28318530718)
+        : rhythmPhase_(RandomGenerator::uniform() * TypingConstants::TWO_PI)
         , fatigueFactor_(1.0)
         , burstRemaining_(0)
         , totalCharsTyped_(0)
@@ -412,21 +433,22 @@ private:
         
         delay *= fatigueFactor_;
         
-        double noise = RandomGenerator::normal(0.0, 0.15);
+        double noise = RandomGenerator::normal(0.0, TypingConstants::NOISE_LEVEL);
         delay *= (1.0 + noise);
         
-        if (totalCharsTyped_ % 50 == 0) {
-            fatigueFactor_ = 1.0 + 0.25 * std::min(1.0, totalCharsTyped_ / 1000.0);
+        if (totalCharsTyped_ % TypingConstants::CHARS_BEFORE_FATIGUE_UPDATE == 0) {
+            fatigueFactor_ = 1.0 + TypingConstants::MAX_FATIGUE_FACTOR * 
+                             std::min(1.0, totalCharsTyped_ / static_cast<double>(TypingConstants::CHARS_FOR_MAX_FATIGUE));
         }
         
-        return std::max(15, std::min(int(delay), 8000));
+        return std::max(TypingConstants::MIN_DELAY_MS, std::min(int(delay), TypingConstants::MAX_DELAY_MS));
     }
     
     int generateHoldTime(unsigned char c) {
         double hold = RandomGenerator::gamma(2.5, 20.0);
         if (std::isupper(c)) hold *= 1.2;
         hold *= (0.9 + RandomGenerator::uniform() * 0.2);
-        return std::max(40, std::min(int(hold), 180));
+        return std::max(TypingConstants::MIN_HOLD_TIME_MS, std::min(int(hold), TypingConstants::MAX_HOLD_TIME_MS));
     }
     
     double rhythmicVariation() {
