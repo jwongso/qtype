@@ -152,6 +152,7 @@ private slots:
         settings["doubleMax"] = doubleMaxSpin_->value();
         settings["enableAutoCorrection"] = autoCorrectCheck_->isChecked();
         settings["correctionProbability"] = autoCorrectProbSpin_->value();
+        settings["mouseMovement"] = mouseCheck_->isChecked();
         
         // Create command
         QJsonObject command;
@@ -321,6 +322,15 @@ private:
         imperfLayout->addLayout(col3);
         mainLayout->addWidget(imperfGroup);
         
+        // Mouse movement option
+        QGroupBox *mouseGroup = new QGroupBox("Mouse Movement", this);
+        QHBoxLayout *mouseLayout = new QHBoxLayout(mouseGroup);
+        mouseCheck_ = new QCheckBox("Enable mouse movement during typing", this);
+        mouseCheck_->setChecked(false);
+        mouseCheck_->setToolTip("Simulates mouse movements to pause typing naturally");
+        mouseLayout->addWidget(mouseCheck_);
+        mainLayout->addWidget(mouseGroup);
+        
         // Text edit
         textEdit_ = new QPlainTextEdit(this);
         textEdit_->setPlaceholderText("Paste your text here... It will be sent to the selected client for typing.");
@@ -439,6 +449,8 @@ private:
 
     QCheckBox *autoCorrectCheck_ = nullptr;
     QSpinBox *autoCorrectProbSpin_ = nullptr;
+    
+    QCheckBox *mouseCheck_ = nullptr;
 };
 
 int main(int argc, char *argv[]) {

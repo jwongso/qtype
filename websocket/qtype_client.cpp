@@ -49,6 +49,14 @@ namespace TypingConstants {
     constexpr int CHARS_FOR_MAX_FATIGUE = 1000;
     constexpr double MAX_FATIGUE_FACTOR = 0.25;
     constexpr double NOISE_LEVEL = 0.15;
+    
+    // Mouse movement
+    constexpr int MIN_MOUSE_MOVE_INTERVAL_CHARS = 20;
+    constexpr int MAX_MOUSE_MOVE_INTERVAL_CHARS = 60;
+    constexpr int MIN_MOUSE_PIXELS = 3;
+    constexpr int MAX_MOUSE_PIXELS = 15;
+    constexpr int MIN_MOUSE_PAUSE_MS = 100;
+    constexpr int MAX_MOUSE_PAUSE_MS = 300;
 }
 
 // Simple WebSocket client using libwebsockets or raw socket
@@ -471,6 +479,61 @@ private:
 };
 
 // ============================================================================
+// Cross-Platform Mouse Simulator
+// ============================================================================
+
+class MouseSimulator {
+public:
+#ifdef __APPLE__
+    void moveRelative(int deltaX, int deltaY) {
+        CGEventRef event = CGEventCreate(nullptr);
+        CGPoint currentPos = CGEventGetLocation(event);
+        CFRelease(event);
+        
+        CGPoint newPos;
+        newPos.x = currentPos.x + deltaX;
+        newPos.y = currentPos.y + deltaY;
+        
+        CGEventRef move = CGEventCreateMouseEvent(nullptr, kCGEventMouseMoved, newPos, kCGMouseButtonLeft);
+        CGEventPost(kCGHIDEventTap, move);
+        CFRelease(move);
+    }
+#elif defined(__linux__)
+    MouseSimulator() {
+        display = XOpenDisplay(nullptr);
+        if (!display) {
+            std::cerr << "Warning: Cannot open X display for mouse\n";
+        }
+    }
+    
+    ~MouseSimulator() {
+        if (display) {
+            XCloseDisplay(display);
+        }
+    }
+    
+    void moveRelative(int deltaX, int deltaY) {
+        if (!display) return;
+        XTestFakeRelativeMotionEvent(display, deltaX, deltaY, CurrentTime);
+        XFlush(display);
+    }
+    
+private:
+    Display* display = nullptr;
+#elif defined(_WIN32) || defined(_WIN64)
+    void moveRelative(int deltaX, int deltaY) {
+        POINT pt;
+        GetCursorPos(&pt);
+        SetCursorPos(pt.x + deltaX, pt.y + deltaY);
+    }
+#else
+    void moveRelative(int deltaX, int deltaY) {
+        // No-op for unsupported platforms
+    }
+#endif
+};
+
+// ============================================================================
 // Typing Engine
 // ============================================================================
 
@@ -483,11 +546,20 @@ public:
         , totalCharsTyped_(0)
         , minDelayMs_(120)
         , maxDelayMs_(2000)
-    {}
+        , mouseMovementEnabled_(false)
+        , charsSinceMouseMove_(0)
+        , nextMouseMoveAt_(0)
+    {
+        scheduleNextMouseMove();
+    }
     
     void setDelayRange(int minMs, int maxMs) {
         minDelayMs_ = minMs;
         maxDelayMs_ = maxMs;
+    }
+    
+    void setMouseMovementEnabled(bool enabled) {
+        mouseMovementEnabled_ = enabled;
     }
     
     void typeText(const std::string& text, std::atomic<bool>& shouldStop) {
@@ -507,6 +579,14 @@ public:
         for (char c : text) {
             if (shouldStop) break;
             
+            // Check if we should move mouse
+            if (shouldMoveMouse()) {
+                performMouseMovement();
+                std::this_thread::sleep_for(std::chrono::milliseconds(
+                    RandomGenerator::range(TypingConstants::MIN_MOUSE_PAUSE_MS, 
+                                          TypingConstants::MAX_MOUSE_PAUSE_MS)));
+            }
+            
             unsigned char uc = static_cast<unsigned char>(c);
             int holdTime = generateHoldTime(uc);
             simulator_.typeCharacter(uc, holdTime);
@@ -515,6 +595,7 @@ public:
             std::this_thread::sleep_for(std::chrono::milliseconds(delay));
             
             totalCharsTyped_++;
+            charsSinceMouseMove_++;
             progress++;
             
             if (progress % 50 == 0) {
@@ -586,13 +667,42 @@ private:
         return false;
     }
     
+    void scheduleNextMouseMove() {
+        nextMouseMoveAt_ = RandomGenerator::range(TypingConstants::MIN_MOUSE_MOVE_INTERVAL_CHARS,
+                                                  TypingConstants::MAX_MOUSE_MOVE_INTERVAL_CHARS);
+    }
+    
+    bool shouldMoveMouse() {
+        return mouseMovementEnabled_ && charsSinceMouseMove_ >= nextMouseMoveAt_;
+    }
+    
+    void performMouseMovement() {
+        int deltaX = RandomGenerator::range(-TypingConstants::MAX_MOUSE_PIXELS, 
+                                            TypingConstants::MAX_MOUSE_PIXELS);
+        int deltaY = RandomGenerator::range(-TypingConstants::MAX_MOUSE_PIXELS, 
+                                            TypingConstants::MAX_MOUSE_PIXELS);
+        
+        if (deltaX == 0 && deltaY == 0) {
+            deltaX = RandomGenerator::range(TypingConstants::MIN_MOUSE_PIXELS, 
+                                            TypingConstants::MAX_MOUSE_PIXELS);
+        }
+        
+        mouseSim_.moveRelative(deltaX, deltaY);
+        charsSinceMouseMove_ = 0;
+        scheduleNextMouseMove();
+    }
+    
     KeyboardSimulator simulator_;
+    MouseSimulator mouseSim_;
     double rhythmPhase_;
     double fatigueFactor_;
     int burstRemaining_;
     int totalCharsTyped_;
     int minDelayMs_;
     int maxDelayMs_;
+    bool mouseMovementEnabled_;
+    int charsSinceMouseMove_;
+    int nextMouseMoveAt_;
 };
 
 // ============================================================================
@@ -865,6 +975,18 @@ int main(int argc, char* argv[]) {
                     
                     std::cout << "Using delay range: " << minDelay << "ms - " << maxDelay << "ms\n";
                     engine.setDelayRange(minDelay, maxDelay);
+
+                    // Extract mouse movement setting
+                    bool mouseMovement = false;
+                    size_t mousePos = message.find("\"mouseMovement\":");
+                    if (mousePos != std::string::npos) {
+                        size_t boolStart = mousePos + 16;
+                        if (message.substr(boolStart, 4) == "true") {
+                            mouseMovement = true;
+                        }
+                    }
+                    engine.setMouseMovementEnabled(mouseMovement);
+                    std::cout << "Mouse movement: " << (mouseMovement ? "enabled" : "disabled") << "\n";
 
                     // Reset stop flag and set busy state
                     shouldStop = false;
