@@ -51,6 +51,14 @@ namespace TypingConstants {
     
     // Platform-specific delays
     constexpr int MAC_SHIFT_DELAY_MS = 10;
+    
+    // Mouse movement
+    constexpr int MIN_MOUSE_MOVE_INTERVAL_CHARS = 20;
+    constexpr int MAX_MOUSE_MOVE_INTERVAL_CHARS = 60;
+    constexpr int MIN_MOUSE_PIXELS = 3;
+    constexpr int MAX_MOUSE_PIXELS = 15;
+    constexpr int MIN_MOUSE_PAUSE_MS = 100;
+    constexpr int MAX_MOUSE_PAUSE_MS = 300;
 }
 
 #ifdef Q_OS_MAC
@@ -59,6 +67,7 @@ namespace TypingConstants {
 
 // Forward declarations
 class IKeyboardSimulator;
+class IMouseSimulator;
 
 // ============================================================================
 // Profile & Settings Structs
@@ -219,6 +228,17 @@ public:
 };
 
 // ============================================================================
+// Mouse Simulator Interface
+// ============================================================================
+
+class IMouseSimulator {
+public:
+    virtual ~IMouseSimulator() = default;
+    
+    virtual void moveRelative(int deltaX, int deltaY) = 0;
+};
+
+// ============================================================================
 // Platform-Specific Implementations
 // ============================================================================
 
@@ -232,6 +252,11 @@ public:
 private:
     void sendKey(int keycode, int holdMs);
 };
+
+class LinuxMouseSimulator : public IMouseSimulator {
+public:
+    void moveRelative(int deltaX, int deltaY) override;
+};
 #endif
 
 #ifdef Q_OS_MAC
@@ -240,6 +265,11 @@ public:
     void typeCharacter(QChar c, int holdTimeMs) override;
     void pressBackspace() override;
     void releaseAllKeys() override;
+};
+
+class MacMouseSimulator : public IMouseSimulator {
+public:
+    void moveRelative(int deltaX, int deltaY) override;
 };
 #endif
 
@@ -250,6 +280,7 @@ public:
 class TypingEngine {
 public:
     TypingEngine(IKeyboardSimulator* simulator,
+                 IMouseSimulator* mouseSimulator,
                  const TimingProfile& profile,
                  const DelayRange& delays,
                  const ImperfectionSettings& imperfections);
@@ -258,6 +289,7 @@ public:
     
     void setText(const QString& text);
     bool hasMoreToType() const;
+    void setMouseMovementEnabled(bool enabled);
     
     int typeNextChunk();
     
@@ -266,6 +298,7 @@ public:
     
 private:
     IKeyboardSimulator* simulator_;
+    IMouseSimulator* mouseSimulator_;
     TimingProfile profile_;
     DelayRange delays_;
     ImperfectionSettings imperfections_;
@@ -275,6 +308,13 @@ private:
     std::unique_ptr<ImperfectionGenerator> imperfectionGen_;
     
     int wordsSinceBreak_;
+    bool mouseMovementEnabled_;
+    int charsSinceMouseMove_;
+    int nextMouseMoveAt_;
+    
+    void scheduleNextMouseMove();
+    bool shouldMoveMouse();
+    void performMouseMovement();
 };
 
 // ============================================================================
@@ -733,6 +773,12 @@ inline void LinuxKeyboardSimulator::releaseAllKeys() {
         QProcess::execute("ydotool", {"key", QString::number(keycode) + ":0"});
     }
 }
+
+inline void LinuxMouseSimulator::moveRelative(int deltaX, int deltaY) {
+    QProcess::execute("ydotool", {"mousemove", "--", 
+                                   QString::number(deltaX), 
+                                   QString::number(deltaY)});
+}
 #endif
 
 #ifdef Q_OS_MAC
@@ -798,14 +844,30 @@ inline void MacKeyboardSimulator::pressBackspace() {
 inline void MacKeyboardSimulator::releaseAllKeys() {
     // macOS doesn't typically need this
 }
+
+inline void MacMouseSimulator::moveRelative(int deltaX, int deltaY) {
+    CGEventRef event = CGEventCreate(nullptr);
+    CGPoint currentPos = CGEventGetLocation(event);
+    CFRelease(event);
+    
+    CGPoint newPos;
+    newPos.x = currentPos.x + deltaX;
+    newPos.y = currentPos.y + deltaY;
+    
+    CGEventRef move = CGEventCreateMouseEvent(nullptr, kCGEventMouseMoved, newPos, kCGMouseButtonLeft);
+    CGEventPost(kCGHIDEventTap, move);
+    CFRelease(move);
+}
 #endif
 
 // TypingEngine
 inline TypingEngine::TypingEngine(IKeyboardSimulator* simulator,
+                           IMouseSimulator* mouseSimulator,
                            const TimingProfile& profile,
                            const DelayRange& delays,
                            const ImperfectionSettings& imperfections)
     : simulator_(simulator)
+    , mouseSimulator_(mouseSimulator)
     , profile_(profile)
     , delays_(delays)
     , imperfections_(imperfections)
@@ -813,6 +875,9 @@ inline TypingEngine::TypingEngine(IKeyboardSimulator* simulator,
     , dynamics_(nullptr)
     , imperfectionGen_(nullptr)
     , wordsSinceBreak_(0)
+    , mouseMovementEnabled_(false)
+    , charsSinceMouseMove_(0)
+    , nextMouseMoveAt_(0)
 {}
 
 inline TypingEngine::~TypingEngine() {
@@ -824,6 +889,46 @@ inline void TypingEngine::setText(const QString& text) {
     dynamics_ = std::make_unique<TypingDynamics>(profile_, delays_);
     imperfectionGen_ = std::make_unique<ImperfectionGenerator>(imperfections_);
     wordsSinceBreak_ = 0;
+    charsSinceMouseMove_ = 0;
+    scheduleNextMouseMove();
+}
+
+inline void TypingEngine::setMouseMovementEnabled(bool enabled) {
+    mouseMovementEnabled_ = enabled;
+    if (enabled) {
+        scheduleNextMouseMove();
+    }
+}
+
+inline void TypingEngine::scheduleNextMouseMove() {
+    nextMouseMoveAt_ = RandomGenerator::range(TypingConstants::MIN_MOUSE_MOVE_INTERVAL_CHARS,
+                                              TypingConstants::MAX_MOUSE_MOVE_INTERVAL_CHARS);
+}
+
+inline bool TypingEngine::shouldMoveMouse() {
+    return mouseMovementEnabled_ && mouseSimulator_ && 
+           charsSinceMouseMove_ >= nextMouseMoveAt_;
+}
+
+inline void TypingEngine::performMouseMovement() {
+    if (!mouseSimulator_) return;
+    
+    // Generate small random movement
+    int deltaX = RandomGenerator::range(-TypingConstants::MAX_MOUSE_PIXELS, 
+                                        TypingConstants::MAX_MOUSE_PIXELS);
+    int deltaY = RandomGenerator::range(-TypingConstants::MAX_MOUSE_PIXELS, 
+                                        TypingConstants::MAX_MOUSE_PIXELS);
+    
+    // Avoid zero movement
+    if (deltaX == 0 && deltaY == 0) {
+        deltaX = RandomGenerator::range(TypingConstants::MIN_MOUSE_PIXELS, 
+                                        TypingConstants::MAX_MOUSE_PIXELS);
+    }
+    
+    mouseSimulator_->moveRelative(deltaX, deltaY);
+    
+    charsSinceMouseMove_ = 0;
+    scheduleNextMouseMove();
 }
 
 inline bool TypingEngine::hasMoreToType() const {
@@ -833,10 +938,19 @@ inline bool TypingEngine::hasMoreToType() const {
 inline int TypingEngine::typeNextChunk() {
     if (!hasMoreToType()) return 0;
     
+    // Check if we should move mouse before typing this chunk
+    if (shouldMoveMouse()) {
+        performMouseMovement();
+        // Return a pause delay - typing stops during mouse movement
+        return RandomGenerator::range(TypingConstants::MIN_MOUSE_PAUSE_MS,
+                                      TypingConstants::MAX_MOUSE_PAUSE_MS);
+    }
+    
     QString chunk = chunker_->nextChunk();
     if (chunk.isEmpty()) return 0;
     
     for (QChar originalChar : chunk) {
+        charsSinceMouseMove_++;
         ImperfectionResult result = imperfectionGen_->processCharacter(originalChar);
         
         int holdTime = dynamics_->generateHoldTime(result.character);

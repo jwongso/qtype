@@ -27,10 +27,13 @@ public:
         // Create platform-specific simulator
 #ifdef Q_OS_LINUX
         simulator_ = new LinuxKeyboardSimulator();
+        mouseSimulator_ = new LinuxMouseSimulator();
 #elif defined(Q_OS_MAC)
         simulator_ = new MacKeyboardSimulator();
+        mouseSimulator_ = new MacMouseSimulator();
 #else
         simulator_ = nullptr;
+        mouseSimulator_ = nullptr;
 #endif
         
         typingTimer_ = new QTimer(this);
@@ -51,6 +54,10 @@ public:
         if (simulator_) {
             delete simulator_;
             simulator_ = nullptr;
+        }
+        if (mouseSimulator_) {
+            delete mouseSimulator_;
+            mouseSimulator_ = nullptr;
         }
     }
 
@@ -88,8 +95,9 @@ private slots:
         imperfections.correctionProbability = autoCorrectProbSpin_->value();
         
         delete engine_;
-        engine_ = new TypingEngine(simulator_, profile, delays, imperfections);
+        engine_ = new TypingEngine(simulator_, mouseSimulator_, profile, delays, imperfections);
         engine_->setText(text);
+        engine_->setMouseMovementEnabled(mouseMovementCheck_->isChecked());
         
         countdownValue_ = 5;
         isTyping_ = true;
@@ -302,9 +310,16 @@ private:
         autoLayout->addWidget(autoCorrectProbSpin_);
         autoLayout->addWidget(new QLabel("%"));
         
+        QHBoxLayout *mouseLayout = new QHBoxLayout();
+        mouseMovementCheck_ = new QCheckBox("Subtle mouse movement simulation", this);
+        mouseMovementCheck_->setChecked(false);
+        mouseMovementCheck_->setToolTip("Occasionally moves mouse by a few pixels during typing pauses");
+        mouseLayout->addWidget(mouseMovementCheck_);
+        
         imperfLayout->addLayout(typoLayout);
         imperfLayout->addLayout(doubleLayout);
         imperfLayout->addLayout(autoLayout);
+        imperfLayout->addLayout(mouseLayout);
         
         topLayout->addWidget(imperfGroup);
         
@@ -385,11 +400,14 @@ private:
     QCheckBox *autoCorrectCheck_ = nullptr;
     QSpinBox *autoCorrectProbSpin_ = nullptr;
     
+    QCheckBox *mouseMovementCheck_ = nullptr;
+    
     // Stats
     QLabel *statsLabel_ = nullptr;
     
     // Engine
     IKeyboardSimulator *simulator_ = nullptr;
+    IMouseSimulator *mouseSimulator_ = nullptr;
     TypingEngine *engine_ = nullptr;
     
     // Timers
