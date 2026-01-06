@@ -1,5 +1,7 @@
 # qtype – Human-Like Typing Simulator
 
+## "Type Human, Stay Human OR Real Fingers, Digital Proof"
+
 This project provides a desktop application that simulates highly human-like typing patterns, including natural timing variation, digraph-based delays, fatigue effects, and optional intentional imperfections such as typos and double-key presses.  
 It is designed for realistic keystroke dynamics rather than automation speed.
 
