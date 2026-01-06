@@ -44,8 +44,14 @@ public:
     }
     
     ~AutoTyperWindow() {
-        delete engine_;
-        delete simulator_;
+        if (engine_) {
+            delete engine_;
+            engine_ = nullptr;
+        }
+        if (simulator_) {
+            delete simulator_;
+            simulator_ = nullptr;
+        }
     }
 
 protected:

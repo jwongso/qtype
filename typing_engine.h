@@ -9,6 +9,49 @@
 #include <QProcess>
 #include <climits>
 #include <cmath>
+#include <memory>
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+namespace TypingConstants {
+    // Math constants
+    constexpr double TWO_PI = 6.28318530718;
+    
+    // Timing bounds
+    constexpr int MIN_DELAY_MS = 15;
+    constexpr int MAX_DELAY_MS = 8000;
+    constexpr int MIN_HOLD_TIME_MS = 40;
+    constexpr int MAX_HOLD_TIME_MS = 180;
+    
+    // Fatigue calculation
+    constexpr int CHARS_BEFORE_FATIGUE_UPDATE = 50;
+    constexpr int CHARS_FOR_MAX_FATIGUE = 1000;
+    constexpr double MAX_FATIGUE_FACTOR = 0.25;
+    
+    // Word chunking
+    constexpr int MAX_CHUNK_LENGTH = 12;
+    
+    // Thinking pauses
+    constexpr int MIN_WORDS_BEFORE_PAUSE = 8;
+    constexpr int MAX_WORDS_BEFORE_PAUSE = 15;
+    constexpr double THINKING_PAUSE_PROBABILITY = 0.3;
+    
+    // Backspace timing
+    constexpr int BACKSPACE_HOLD_MS = 10;
+    constexpr int MIN_BACKSPACE_DELAY_MS = 40;
+    constexpr int MAX_BACKSPACE_DELAY_MS = 90;
+    constexpr int MIN_CORRECTION_DELAY_MS = 60;
+    constexpr int MAX_CORRECTION_DELAY_MS = 160;
+    
+    // Double key timing
+    constexpr int MIN_DOUBLE_KEY_DELAY_MS = 10;
+    constexpr int MAX_DOUBLE_KEY_DELAY_MS = 40;
+    
+    // Platform-specific delays
+    constexpr int MAC_SHIFT_DELAY_MS = 10;
+}
 
 #ifdef Q_OS_MAC
 #include <ApplicationServices/ApplicationServices.h>
@@ -211,6 +254,8 @@ public:
                  const DelayRange& delays,
                  const ImperfectionSettings& imperfections);
     
+    ~TypingEngine();
+    
     void setText(const QString& text);
     bool hasMoreToType() const;
     
@@ -225,9 +270,9 @@ private:
     DelayRange delays_;
     ImperfectionSettings imperfections_;
     
-    TextChunker* chunker_;
-    TypingDynamics* dynamics_;
-    ImperfectionGenerator* imperfectionGen_;
+    std::unique_ptr<TextChunker> chunker_;
+    std::unique_ptr<TypingDynamics> dynamics_;
+    std::unique_ptr<ImperfectionGenerator> imperfectionGen_;
     
     int wordsSinceBreak_;
 };
@@ -323,8 +368,8 @@ inline double RandomGenerator::gamma(double shape, double scale) {
 }
 
 inline double RandomGenerator::normal(double mean, double stddev) {
-    static bool hasSpare = false;
-    static double spare;
+    thread_local bool hasSpare = false;
+    thread_local double spare;
     
     if (hasSpare) {
         hasSpare = false;
@@ -414,7 +459,7 @@ inline TypingDynamics::TypingDynamics(const TimingProfile& profile, const DelayR
     : profile_(profile)
     , delays_(delays)
     , previousChar_()
-    , rhythmPhase_(RandomGenerator::uniform() * 6.28318530718)
+    , rhythmPhase_(RandomGenerator::uniform() * TypingConstants::TWO_PI)
     , fatigueFactor_(1.0)
     , burstRemaining_(0)
     , totalCharsTyped_(0)
@@ -422,7 +467,7 @@ inline TypingDynamics::TypingDynamics(const TimingProfile& profile, const DelayR
 
 inline void TypingDynamics::reset() {
     previousChar_ = QChar();
-    rhythmPhase_ = RandomGenerator::uniform() * 6.28318530718;
+    rhythmPhase_ = RandomGenerator::uniform() * TypingConstants::TWO_PI;
     fatigueFactor_ = 1.0;
     burstRemaining_ = 0;
     totalCharsTyped_ = 0;
@@ -432,8 +477,9 @@ inline void TypingDynamics::updateState(QChar currentChar, bool isNewWord) {
     previousChar_ = currentChar;
     totalCharsTyped_++;
     
-    if (totalCharsTyped_ % 50 == 0) {
-        fatigueFactor_ = 1.0 + 0.25 * std::min(1.0, totalCharsTyped_ / 1000.0);
+    if (totalCharsTyped_ % TypingConstants::CHARS_BEFORE_FATIGUE_UPDATE == 0) {
+        fatigueFactor_ = 1.0 + TypingConstants::MAX_FATIGUE_FACTOR * 
+                         std::min(1.0, totalCharsTyped_ / static_cast<double>(TypingConstants::CHARS_FOR_MAX_FATIGUE));
     }
 }
 
@@ -450,8 +496,9 @@ inline bool TypingDynamics::shouldBurst() {
 }
 
 inline bool TypingDynamics::shouldThinkingPause(int wordsSinceBreak) {
-    return wordsSinceBreak > RandomGenerator::range(8, 15) &&
-           RandomGenerator::uniform() < 0.3;
+    return wordsSinceBreak > RandomGenerator::range(TypingConstants::MIN_WORDS_BEFORE_PAUSE, 
+                                                     TypingConstants::MAX_WORDS_BEFORE_PAUSE) &&
+           RandomGenerator::uniform() < TypingConstants::THINKING_PAUSE_PROBABILITY;
 }
 
 inline double TypingDynamics::rhythmicVariation() {
@@ -521,7 +568,7 @@ inline int TypingDynamics::calculateDelay(QChar ch, bool isSentenceEnd, bool isB
     double noise = RandomGenerator::normal(0.0, profile_.noiseLevel);
     delay *= (1.0 + noise);
     
-    return qBound(15, int(delay), 8000);
+    return qBound(TypingConstants::MIN_DELAY_MS, int(delay), TypingConstants::MAX_DELAY_MS);
 }
 
 inline int TypingDynamics::generateHoldTime(QChar ch) {
@@ -533,7 +580,7 @@ inline int TypingDynamics::generateHoldTime(QChar ch) {
     
     hold *= (0.9 + RandomGenerator::uniform() * 0.2);
     
-    return qBound(40, int(hold), 180);
+    return qBound(TypingConstants::MIN_HOLD_TIME_MS, int(hold), TypingConstants::MAX_HOLD_TIME_MS);
 }
 
 // ImperfectionGenerator
@@ -632,7 +679,7 @@ inline QString TextChunker::nextChunk() {
     }
     
     QString chunk;
-    int limit = 12;
+    int limit = TypingConstants::MAX_CHUNK_LENGTH;
     while (currentIndex_ < text_.length() && limit--) {
         ch = text_[currentIndex_];
         if (ch == '\n' || ch == '\t') break;
@@ -670,7 +717,7 @@ inline void LinuxKeyboardSimulator::typeCharacter(QChar c, int holdTimeMs) {
 
 inline void LinuxKeyboardSimulator::pressBackspace() {
     QProcess::execute("ydotool", {"key", "14:1"});
-    QThread::msleep(10);
+    QThread::msleep(TypingConstants::BACKSPACE_HOLD_MS);
     QProcess::execute("ydotool", {"key", "14:0"});
 }
 
@@ -699,7 +746,7 @@ inline void MacKeyboardSimulator::typeCharacter(QChar c, int holdTimeMs) {
         CGEventPost(kCGHIDEventTap, shiftDown);
         CFRelease(shiftDown);
         
-        QThread::msleep(10);
+        QThread::msleep(TypingConstants::MAC_SHIFT_DELAY_MS);
         
         // Send Enter while Shift is held
         down = CGEventCreateKeyboardEvent(nullptr, 0x24, true);  // Enter down
@@ -715,7 +762,7 @@ inline void MacKeyboardSimulator::typeCharacter(QChar c, int holdTimeMs) {
         CFRelease(down);
         CFRelease(up);
         
-        QThread::msleep(10);
+        QThread::msleep(TypingConstants::MAC_SHIFT_DELAY_MS);
         
         // Release Shift
         CGEventRef shiftUp = CGEventCreateKeyboardEvent(nullptr, 56, false);
@@ -742,7 +789,7 @@ inline void MacKeyboardSimulator::pressBackspace() {
     CGEventRef down = CGEventCreateKeyboardEvent(nullptr, 51, true);
     CGEventRef up = CGEventCreateKeyboardEvent(nullptr, 51, false);
     CGEventPost(kCGHIDEventTap, down);
-    QThread::msleep(10);
+    QThread::msleep(TypingConstants::BACKSPACE_HOLD_MS);
     CGEventPost(kCGHIDEventTap, up);
     CFRelease(down);
     CFRelease(up);
@@ -768,14 +815,14 @@ inline TypingEngine::TypingEngine(IKeyboardSimulator* simulator,
     , wordsSinceBreak_(0)
 {}
 
+inline TypingEngine::~TypingEngine() {
+    // unique_ptr handles cleanup automatically
+}
+
 inline void TypingEngine::setText(const QString& text) {
-    delete chunker_;
-    delete dynamics_;
-    delete imperfectionGen_;
-    
-    chunker_ = new TextChunker(text);
-    dynamics_ = new TypingDynamics(profile_, delays_);
-    imperfectionGen_ = new ImperfectionGenerator(imperfections_);
+    chunker_ = std::make_unique<TextChunker>(text);
+    dynamics_ = std::make_unique<TypingDynamics>(profile_, delays_);
+    imperfectionGen_ = std::make_unique<ImperfectionGenerator>(imperfections_);
     wordsSinceBreak_ = 0;
 }
 
@@ -797,15 +844,18 @@ inline int TypingEngine::typeNextChunk() {
         
         if (result.shouldDouble) {
             int secondHold = dynamics_->generateHoldTime(result.character);
-            QThread::msleep(RandomGenerator::range(10, 40));
+            QThread::msleep(RandomGenerator::range(TypingConstants::MIN_DOUBLE_KEY_DELAY_MS, 
+                                                   TypingConstants::MAX_DOUBLE_KEY_DELAY_MS));
             simulator_->typeCharacter(result.character, secondHold);
         }
         
         if (result.shouldCorrect) {
-            QThread::msleep(RandomGenerator::range(60, 160));
+            QThread::msleep(RandomGenerator::range(TypingConstants::MIN_CORRECTION_DELAY_MS, 
+                                                   TypingConstants::MAX_CORRECTION_DELAY_MS));
             simulator_->pressBackspace();
             int corrHold = dynamics_->generateHoldTime(originalChar);
-            QThread::msleep(RandomGenerator::range(40, 90));
+            QThread::msleep(RandomGenerator::range(TypingConstants::MIN_BACKSPACE_DELAY_MS, 
+                                                   TypingConstants::MAX_BACKSPACE_DELAY_MS));
             simulator_->typeCharacter(originalChar, corrHold);
         }
         
