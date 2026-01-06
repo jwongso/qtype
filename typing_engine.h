@@ -296,6 +296,9 @@ public:
     int progressPercent() const;
     void reset();
     
+    int getSkippedCharCount() const { return skippedCharCount_; }
+    QString getSkippedCharsPreview() const { return skippedCharsPreview_; }
+    
 private:
     IKeyboardSimulator* simulator_;
     IMouseSimulator* mouseSimulator_;
@@ -311,10 +314,14 @@ private:
     bool mouseMovementEnabled_;
     int charsSinceMouseMove_;
     int nextMouseMoveAt_;
+    int skippedCharCount_;
+    QString skippedCharsPreview_;
     
     void scheduleNextMouseMove();
     bool shouldMoveMouse();
     void performMouseMovement();
+    bool isTypeable(QChar c) const;
+    void recordSkippedChar(QChar c);
 };
 
 // ============================================================================
@@ -878,6 +885,8 @@ inline TypingEngine::TypingEngine(IKeyboardSimulator* simulator,
     , mouseMovementEnabled_(false)
     , charsSinceMouseMove_(0)
     , nextMouseMoveAt_(0)
+    , skippedCharCount_(0)
+    , skippedCharsPreview_()
 {}
 
 inline TypingEngine::~TypingEngine() {
@@ -890,6 +899,8 @@ inline void TypingEngine::setText(const QString& text) {
     imperfectionGen_ = std::make_unique<ImperfectionGenerator>(imperfections_);
     wordsSinceBreak_ = 0;
     charsSinceMouseMove_ = 0;
+    skippedCharCount_ = 0;
+    skippedCharsPreview_.clear();
     scheduleNextMouseMove();
 }
 
@@ -931,6 +942,27 @@ inline void TypingEngine::performMouseMovement() {
     scheduleNextMouseMove();
 }
 
+inline bool TypingEngine::isTypeable(QChar c) const {
+    // Basic ASCII is always safe
+    if (c.unicode() < 128) return true;
+    
+    // Common extended ASCII might work
+    // But ydotool/CGEvent may not handle all Unicode reliably
+    return false;
+}
+
+inline void TypingEngine::recordSkippedChar(QChar c) {
+    skippedCharCount_++;
+    if (skippedCharsPreview_.length() < 20) {
+        if (!skippedCharsPreview_.contains(c)) {
+            if (!skippedCharsPreview_.isEmpty()) {
+                skippedCharsPreview_ += ", ";
+            }
+            skippedCharsPreview_ += c;
+        }
+    }
+}
+
 inline bool TypingEngine::hasMoreToType() const {
     return chunker_ && chunker_->hasMore();
 }
@@ -951,6 +983,13 @@ inline int TypingEngine::typeNextChunk() {
     
     for (QChar originalChar : chunk) {
         charsSinceMouseMove_++;
+        
+        // Check if character can be typed
+        if (!isTypeable(originalChar)) {
+            recordSkippedChar(originalChar);
+            continue; // Skip this character
+        }
+        
         ImperfectionResult result = imperfectionGen_->processCharacter(originalChar);
         
         int holdTime = dynamics_->generateHoldTime(result.character);

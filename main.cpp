@@ -99,6 +99,9 @@ private slots:
         engine_->setText(text);
         engine_->setMouseMovementEnabled(mouseMovementCheck_->isChecked());
         
+        // Hide warning from previous session
+        warningLabel_->setVisible(false);
+        
         countdownValue_ = 5;
         isTyping_ = true;
         
@@ -151,6 +154,16 @@ private slots:
         int delayMs = engine_->typeNextChunk();
 
         statusLabel_->setText(QString("Processing... %1%").arg(engine_->progressPercent()));
+        
+        // Check for skipped characters
+        int skippedCount = engine_->getSkippedCharCount();
+        if (skippedCount > 0) {
+            QString preview = engine_->getSkippedCharsPreview();
+            warningLabel_->setText(QString("⚠️ WARNING: %1 non-ASCII character(s) skipped: [%2] - These may cause detection!")
+                                  .arg(skippedCount)
+                                  .arg(preview));
+            warningLabel_->setVisible(true);
+        }
         
         if (engine_->hasMoreToType()) {
             typingTimer_->start(delayMs);
@@ -353,6 +366,14 @@ private:
         statusLabel_->setStyleSheet("padding: 8px; font-size: 13px;");
         mainLayout->addWidget(statusLabel_);
         
+        // Warning label for non-ASCII characters
+        warningLabel_ = new QLabel("");
+        warningLabel_->setAlignment(Qt::AlignCenter);
+        warningLabel_->setStyleSheet("padding: 8px; font-size: 12px; color: #d9534f; background-color: #f2dede; border: 1px solid #ebccd1; border-radius: 4px; font-weight: bold;");
+        warningLabel_->setWordWrap(true);
+        warningLabel_->setVisible(false);
+        mainLayout->addWidget(warningLabel_);
+        
         // Stats bar at bottom
         statsLabel_ = new QLabel("");
         statsLabel_->setAlignment(Qt::AlignRight);
@@ -385,6 +406,7 @@ private:
     QPushButton *startButton_ = nullptr;
     QPushButton *stopButton_ = nullptr;
     QLabel *statusLabel_ = nullptr;
+    QLabel *warningLabel_ = nullptr;
     QSpinBox *minDelaySpinBox_ = nullptr;
     QSpinBox *maxDelaySpinBox_ = nullptr;
     QComboBox *profileCombo_ = nullptr;
