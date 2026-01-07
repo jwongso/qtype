@@ -1,6 +1,6 @@
 // qtype_client.cpp - Cross-Platform Console Client with WebSocket
 // Compile (MacOS): clang++ qtype_client.cpp -o qtype_client -std=c++17 -framework ApplicationServices -framework CoreFoundation
-// Compile (Linux): g++ qtype_client.cpp -o qtype_client -std=c++17 -lX11 -lXtst
+// Compile (Linux): g++ qtype_client.cpp -o qtype_client -std=c++17 -lX11 -lXtst -lXss
 // Compile (Windows): cl qtype_client.cpp /EHsc /std:c++17 /Fe:qtype_client.exe
 //            or: g++ qtype_client.cpp -o qtype_client.exe -std=c++17 -static-libgcc -static-libstdc++
 // Compile (WSL): See Linux or use xdotool
@@ -19,6 +19,7 @@
 #elif defined(__linux__)
 #include <X11/Xlib.h>
 #include <X11/extensions/XTest.h>
+#include <X11/extensions/scrnsaver.h>
 #include <X11/keysym.h>
 #endif
 
@@ -604,12 +605,27 @@ public:
         return 0;
         
 #elif defined(__linux__)
-        // Linux: Use XScreenSaverQueryInfo (requires -lXss)
-        // Since we want to avoid extra dependencies, we'll use a simpler approach:
-        // Return 0 if we can't detect (no idle detection on Linux without XScreenSaver)
-        // Alternative: Could parse /proc/interrupts but that's complex
-        // For now, we'll just return 0 (always consider not idle on Linux)
-        // TODO: Add proper X11 idle detection with XScreenSaver extension
+        // Linux: Use XScreenSaver extension for accurate idle time
+        static Display* display = nullptr;
+        if (!display) {
+            display = XOpenDisplay(nullptr);
+            if (!display) {
+                return 0;  // Can't open display
+            }
+        }
+        
+        XScreenSaverInfo* info = XScreenSaverAllocInfo();
+        if (!info) {
+            return 0;
+        }
+        
+        if (XScreenSaverQueryInfo(display, DefaultRootWindow(display), info)) {
+            unsigned long idleMs = info->idle;
+            XFree(info);
+            return static_cast<int64_t>(idleMs);
+        }
+        
+        XFree(info);
         return 0;
 #else
         return 0;

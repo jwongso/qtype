@@ -58,7 +58,7 @@ build_linux() {
     echo "Building qtype_client (WebSocket client)..."
     g++ -o "$BINARY_DIR/qtype_client-linux-x64" \
         "$SCRIPT_DIR/websocket/qtype_client.cpp" \
-        -lX11 -lXtst -std=c++17 -O2
+        -lX11 -lXtst -lXss -std=c++17 -O2
     chmod +x "$BINARY_DIR/qtype_client-linux-x64"
     echo -e "${GREEN}✓ qtype_client-linux-x64 built successfully${NC}"
 }
