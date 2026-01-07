@@ -59,6 +59,15 @@ namespace TypingConstants {
     constexpr int MAX_MOUSE_PIXELS = 15;
     constexpr int MIN_MOUSE_PAUSE_MS = 100;
     constexpr int MAX_MOUSE_PAUSE_MS = 300;
+    
+    // Scroll
+    constexpr int MIN_SCROLL_INTERVAL_CHARS = 40;
+    constexpr int MAX_SCROLL_INTERVAL_CHARS = 120;
+    constexpr int MIN_SCROLL_AMOUNT = 1;
+    constexpr int MAX_SCROLL_AMOUNT = 3;
+    constexpr int MIN_SCROLL_PAUSE_MS = 150;
+    constexpr int MAX_SCROLL_PAUSE_MS = 400;
+    constexpr double SCROLL_DOWN_PROBABILITY = 0.8; // 80% scroll down, 20% up
 }
 
 #ifdef Q_OS_MAC
@@ -250,6 +259,7 @@ public:
     virtual ~IMouseSimulator() = default;
     
     virtual void moveRelative(int deltaX, int deltaY) = 0;
+    virtual void scroll(int amount) = 0;  // Positive = down, negative = up
 };
 
 // ============================================================================
@@ -270,6 +280,7 @@ private:
 class LinuxMouseSimulator : public IMouseSimulator {
 public:
     void moveRelative(int deltaX, int deltaY) override;
+    void scroll(int amount) override;
 };
 #endif
 
@@ -284,6 +295,7 @@ public:
 class MacMouseSimulator : public IMouseSimulator {
 public:
     void moveRelative(int deltaX, int deltaY) override;
+    void scroll(int amount) override;
 };
 #endif
 
@@ -305,6 +317,7 @@ public:
     void setText(const QString& text);
     bool hasMoreToType() const;
     void setMouseMovementEnabled(bool enabled);
+    void setScrollEnabled(bool enabled);
     
     int typeNextChunk();
     
@@ -330,12 +343,18 @@ private:
     bool mouseMovementEnabled_;
     int charsSinceMouseMove_;
     int nextMouseMoveAt_;
+    bool scrollEnabled_;
+    int charsSinceScroll_;
+    int nextScrollAt_;
     int skippedCharCount_;
     QString skippedCharsPreview_;
     
     void scheduleNextMouseMove();
     bool shouldMoveMouse();
     void performMouseMovement();
+    void scheduleNextScroll();
+    bool shouldScroll();
+    void performScroll();
     bool isTypeable(QChar c) const;
     void recordSkippedChar(QChar c);
 };
@@ -829,6 +848,12 @@ inline void LinuxMouseSimulator::moveRelative(int deltaX, int deltaY) {
                                    QString::number(deltaX), 
                                    QString::number(deltaY)});
 }
+
+inline void LinuxMouseSimulator::scroll(int amount) {
+    // ydotool scroll: positive Y = scroll down, negative Y = scroll up
+    // Each unit is roughly one "notch" of the scroll wheel
+    QProcess::execute("ydotool", {"scroll", "--", "0", QString::number(amount)});
+}
 #endif
 
 #ifdef Q_OS_MAC
@@ -908,6 +933,17 @@ inline void MacMouseSimulator::moveRelative(int deltaX, int deltaY) {
     CGEventPost(kCGHIDEventTap, move);
     CFRelease(move);
 }
+
+inline void MacMouseSimulator::scroll(int amount) {
+    // Create a scroll wheel event
+    // Positive amount = scroll down, negative = scroll up
+    CGEventRef scrollEvent = CGEventCreateScrollWheelEvent(nullptr, 
+                                                           kCGScrollEventUnitLine,
+                                                           1,  // Number of wheels (1 for vertical)
+                                                           amount);
+    CGEventPost(kCGHIDEventTap, scrollEvent);
+    CFRelease(scrollEvent);
+}
 #endif
 
 // TypingEngine
@@ -944,15 +980,24 @@ inline void TypingEngine::setText(const QString& text) {
     imperfectionGen_ = std::make_unique<ImperfectionGenerator>(imperfections_, layout_);
     wordsSinceBreak_ = 0;
     charsSinceMouseMove_ = 0;
+    charsSinceScroll_ = 0;
     skippedCharCount_ = 0;
     skippedCharsPreview_.clear();
     scheduleNextMouseMove();
+    scheduleNextScroll();
 }
 
 inline void TypingEngine::setMouseMovementEnabled(bool enabled) {
     mouseMovementEnabled_ = enabled;
     if (enabled) {
         scheduleNextMouseMove();
+    }
+}
+
+inline void TypingEngine::setScrollEnabled(bool enabled) {
+    scrollEnabled_ = enabled;
+    if (enabled) {
+        scheduleNextScroll();
     }
 }
 
@@ -985,6 +1030,33 @@ inline void TypingEngine::performMouseMovement() {
     
     charsSinceMouseMove_ = 0;
     scheduleNextMouseMove();
+}
+
+inline void TypingEngine::scheduleNextScroll() {
+    nextScrollAt_ = RandomGenerator::range(TypingConstants::MIN_SCROLL_INTERVAL_CHARS,
+                                           TypingConstants::MAX_SCROLL_INTERVAL_CHARS);
+}
+
+inline bool TypingEngine::shouldScroll() {
+    return scrollEnabled_ && mouseSimulator_ && 
+           charsSinceScroll_ >= nextScrollAt_;
+}
+
+inline void TypingEngine::performScroll() {
+    if (!mouseSimulator_) return;
+    
+    int amount = RandomGenerator::range(TypingConstants::MIN_SCROLL_AMOUNT,
+                                        TypingConstants::MAX_SCROLL_AMOUNT);
+    
+    // 80% chance to scroll down, 20% to scroll up
+    if (RandomGenerator::uniform() > TypingConstants::SCROLL_DOWN_PROBABILITY) {
+        amount = -amount;  // Scroll up
+    }
+    
+    mouseSimulator_->scroll(amount);
+    
+    charsSinceScroll_ = 0;
+    scheduleNextScroll();
 }
 
 inline bool TypingEngine::isTypeable(QChar c) const {
@@ -1023,11 +1095,20 @@ inline int TypingEngine::typeNextChunk() {
                                       TypingConstants::MAX_MOUSE_PAUSE_MS);
     }
     
+    // Check if we should scroll before typing this chunk
+    if (shouldScroll()) {
+        performScroll();
+        // Return a pause delay - typing stops during scrolling
+        return RandomGenerator::range(TypingConstants::MIN_SCROLL_PAUSE_MS,
+                                      TypingConstants::MAX_SCROLL_PAUSE_MS);
+    }
+    
     QString chunk = chunker_->nextChunk();
     if (chunk.isEmpty()) return 0;
     
     for (QChar originalChar : chunk) {
         charsSinceMouseMove_++;
+        charsSinceScroll_++;
         
         // Check if character can be typed
         if (!isTypeable(originalChar)) {

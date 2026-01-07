@@ -100,6 +100,7 @@ private slots:
         engine_ = new TypingEngine(simulator_, mouseSimulator_, profile, delays, imperfections, layout);
         engine_->setText(text);
         engine_->setMouseMovementEnabled(mouseMovementCheck_->isChecked());
+        engine_->setScrollEnabled(scrollCheck_->isChecked());
         
         // Hide warning from previous session
         warningLabel_->setVisible(false);
@@ -343,10 +344,17 @@ private:
         mouseMovementCheck_->setToolTip("Occasionally moves mouse by a few pixels during typing pauses");
         mouseLayout->addWidget(mouseMovementCheck_);
         
+        QHBoxLayout *scrollLayout = new QHBoxLayout();
+        scrollCheck_ = new QCheckBox("Random scrolling simulation", this);
+        scrollCheck_->setChecked(false);
+        scrollCheck_->setToolTip("Occasionally scrolls the view during typing (mostly downward)");
+        scrollLayout->addWidget(scrollCheck_);
+        
         imperfLayout->addLayout(typoLayout);
         imperfLayout->addLayout(doubleLayout);
         imperfLayout->addLayout(autoLayout);
         imperfLayout->addLayout(mouseLayout);
+        imperfLayout->addLayout(scrollLayout);
         
         topLayout->addWidget(imperfGroup);
         
@@ -447,6 +455,7 @@ private:
     QSpinBox *autoCorrectProbSpin_ = nullptr;
     
     QCheckBox *mouseMovementCheck_ = nullptr;
+    QCheckBox *scrollCheck_ = nullptr;
     
     // Stats
     QLabel *statsLabel_ = nullptr;
