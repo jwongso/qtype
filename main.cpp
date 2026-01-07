@@ -44,6 +44,16 @@ public:
         
         watchdog_ = new QTimer(this);
         connect(watchdog_, &QTimer::timeout, this, &AutoTyperWindow::watchdogCheck);
+        
+        // Idle scroll timer - checks every second if we should scroll
+        idleScrollTimer_ = new QTimer(this);
+        connect(idleScrollTimer_, &QTimer::timeout, this, &AutoTyperWindow::checkIdleScroll);
+        idleScrollTimer_->start(1000);  // Check every second
+        
+        lastActivityTime_ = QDateTime::currentMSecsSinceEpoch();
+        
+        // Install event filter to detect user activity
+        qApp->installEventFilter(this);
     }
     
     ~AutoTyperWindow() {
@@ -100,7 +110,7 @@ private slots:
         engine_ = new TypingEngine(simulator_, mouseSimulator_, profile, delays, imperfections, layout);
         engine_->setText(text);
         engine_->setMouseMovementEnabled(mouseMovementCheck_->isChecked());
-        engine_->setScrollEnabled(scrollCheck_->isChecked());
+        // Scroll is now idle-based, not typing-based
         
         // Hide warning from previous session
         warningLabel_->setVisible(false);
@@ -186,6 +196,43 @@ private slots:
             }
             stopTyping();
         }
+    }
+    
+    void checkIdleScroll() {
+        if (!scrollCheck_->isChecked()) return;
+        if (!mouseSimulator_) return;
+        
+        qint64 now = QDateTime::currentMSecsSinceEpoch();
+        qint64 idleTime = now - lastActivityTime_;
+        
+        // If idle for more than 30 seconds, perform a scroll
+        if (idleTime >= 30000) {
+            int amount = RandomGenerator::range(TypingConstants::MIN_SCROLL_AMOUNT,
+                                                TypingConstants::MAX_SCROLL_AMOUNT);
+            
+            // 80% chance to scroll down, 20% to scroll up
+            if (RandomGenerator::uniform() > TypingConstants::SCROLL_DOWN_PROBABILITY) {
+                amount = -amount;
+            }
+            
+            mouseSimulator_->scroll(amount);
+            
+            // Don't reset activity time - keep scrolling while idle
+        }
+    }
+    
+    bool eventFilter(QObject *obj, QEvent *event) override {
+        // Track any keyboard or mouse activity to reset idle timer
+        if (event->type() == QEvent::KeyPress ||
+            event->type() == QEvent::KeyRelease ||
+            event->type() == QEvent::MouseButtonPress ||
+            event->type() == QEvent::MouseButtonRelease ||
+            event->type() == QEvent::MouseMove ||
+            event->type() == QEvent::Wheel) {
+            lastActivityTime_ = QDateTime::currentMSecsSinceEpoch();
+        }
+        
+        return QMainWindow::eventFilter(obj, event);
     }
     
     void updateStats() {
@@ -345,9 +392,9 @@ private:
         mouseLayout->addWidget(mouseMovementCheck_);
         
         QHBoxLayout *scrollLayout = new QHBoxLayout();
-        scrollCheck_ = new QCheckBox("Random scrolling simulation", this);
+        scrollCheck_ = new QCheckBox("Idle scrolling (screensaver-like)", this);
         scrollCheck_->setChecked(false);
-        scrollCheck_->setToolTip("Occasionally scrolls the view during typing (mostly downward)");
+        scrollCheck_->setToolTip("Scrolls automatically after 30 seconds of keyboard/mouse inactivity");
         scrollLayout->addWidget(scrollCheck_);
         
         imperfLayout->addLayout(typoLayout);
@@ -456,6 +503,10 @@ private:
     
     QCheckBox *mouseMovementCheck_ = nullptr;
     QCheckBox *scrollCheck_ = nullptr;
+    
+    // Idle scroll tracking
+    QTimer *idleScrollTimer_ = nullptr;
+    qint64 lastActivityTime_ = 0;
     
     // Stats
     QLabel *statsLabel_ = nullptr;

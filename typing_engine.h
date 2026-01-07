@@ -317,7 +317,6 @@ public:
     void setText(const QString& text);
     bool hasMoreToType() const;
     void setMouseMovementEnabled(bool enabled);
-    void setScrollEnabled(bool enabled);
     
     int typeNextChunk();
     
@@ -343,18 +342,12 @@ private:
     bool mouseMovementEnabled_;
     int charsSinceMouseMove_;
     int nextMouseMoveAt_;
-    bool scrollEnabled_;
-    int charsSinceScroll_;
-    int nextScrollAt_;
     int skippedCharCount_;
     QString skippedCharsPreview_;
     
     void scheduleNextMouseMove();
     bool shouldMoveMouse();
     void performMouseMovement();
-    void scheduleNextScroll();
-    bool shouldScroll();
-    void performScroll();
     bool isTypeable(QChar c) const;
     void recordSkippedChar(QChar c);
 };
@@ -980,24 +973,15 @@ inline void TypingEngine::setText(const QString& text) {
     imperfectionGen_ = std::make_unique<ImperfectionGenerator>(imperfections_, layout_);
     wordsSinceBreak_ = 0;
     charsSinceMouseMove_ = 0;
-    charsSinceScroll_ = 0;
     skippedCharCount_ = 0;
     skippedCharsPreview_.clear();
     scheduleNextMouseMove();
-    scheduleNextScroll();
 }
 
 inline void TypingEngine::setMouseMovementEnabled(bool enabled) {
     mouseMovementEnabled_ = enabled;
     if (enabled) {
         scheduleNextMouseMove();
-    }
-}
-
-inline void TypingEngine::setScrollEnabled(bool enabled) {
-    scrollEnabled_ = enabled;
-    if (enabled) {
-        scheduleNextScroll();
     }
 }
 
@@ -1030,33 +1014,6 @@ inline void TypingEngine::performMouseMovement() {
     
     charsSinceMouseMove_ = 0;
     scheduleNextMouseMove();
-}
-
-inline void TypingEngine::scheduleNextScroll() {
-    nextScrollAt_ = RandomGenerator::range(TypingConstants::MIN_SCROLL_INTERVAL_CHARS,
-                                           TypingConstants::MAX_SCROLL_INTERVAL_CHARS);
-}
-
-inline bool TypingEngine::shouldScroll() {
-    return scrollEnabled_ && mouseSimulator_ && 
-           charsSinceScroll_ >= nextScrollAt_;
-}
-
-inline void TypingEngine::performScroll() {
-    if (!mouseSimulator_) return;
-    
-    int amount = RandomGenerator::range(TypingConstants::MIN_SCROLL_AMOUNT,
-                                        TypingConstants::MAX_SCROLL_AMOUNT);
-    
-    // 80% chance to scroll down, 20% to scroll up
-    if (RandomGenerator::uniform() > TypingConstants::SCROLL_DOWN_PROBABILITY) {
-        amount = -amount;  // Scroll up
-    }
-    
-    mouseSimulator_->scroll(amount);
-    
-    charsSinceScroll_ = 0;
-    scheduleNextScroll();
 }
 
 inline bool TypingEngine::isTypeable(QChar c) const {
@@ -1095,20 +1052,11 @@ inline int TypingEngine::typeNextChunk() {
                                       TypingConstants::MAX_MOUSE_PAUSE_MS);
     }
     
-    // Check if we should scroll before typing this chunk
-    if (shouldScroll()) {
-        performScroll();
-        // Return a pause delay - typing stops during scrolling
-        return RandomGenerator::range(TypingConstants::MIN_SCROLL_PAUSE_MS,
-                                      TypingConstants::MAX_SCROLL_PAUSE_MS);
-    }
-    
     QString chunk = chunker_->nextChunk();
     if (chunk.isEmpty()) return 0;
     
     for (QChar originalChar : chunk) {
         charsSinceMouseMove_++;
-        charsSinceScroll_++;
         
         // Check if character can be typed
         if (!isTypeable(originalChar)) {
