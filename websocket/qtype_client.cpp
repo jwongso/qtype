@@ -57,6 +57,11 @@ namespace TypingConstants {
     constexpr int MAX_MOUSE_PIXELS = 15;
     constexpr int MIN_MOUSE_PAUSE_MS = 100;
     constexpr int MAX_MOUSE_PAUSE_MS = 300;
+    
+    // Scroll constants
+    constexpr int MIN_SCROLL_AMOUNT = 1;
+    constexpr int MAX_SCROLL_AMOUNT = 3;
+    constexpr double SCROLL_DOWN_PROBABILITY = 0.8;
 }
 
 // Simple WebSocket client using libwebsockets or raw socket
@@ -498,6 +503,17 @@ public:
         CGEventPost(kCGHIDEventTap, move);
         CFRelease(move);
     }
+    
+    void scroll(int amount) {
+        // Create a scroll wheel event
+        // Positive amount = scroll down, negative = scroll up
+        CGEventRef scrollEvent = CGEventCreateScrollWheelEvent(nullptr, 
+                                                               kCGScrollEventUnitLine,
+                                                               1,  // Number of wheels (1 for vertical)
+                                                               amount);
+        CGEventPost(kCGHIDEventTap, scrollEvent);
+        CFRelease(scrollEvent);
+    }
 #elif defined(__linux__)
     MouseSimulator() {
         display = XOpenDisplay(nullptr);
@@ -518,6 +534,19 @@ public:
         XFlush(display);
     }
     
+    void scroll(int amount) {
+        if (!display) return;
+        // X11 scroll simulation using button 4 (scroll up) and button 5 (scroll down)
+        unsigned int button = (amount > 0) ? 5 : 4;  // 5=down, 4=up
+        int absAmount = std::abs(amount);
+        
+        for (int i = 0; i < absAmount; i++) {
+            XTestFakeButtonEvent(display, button, True, CurrentTime);
+            XTestFakeButtonEvent(display, button, False, CurrentTime);
+        }
+        XFlush(display);
+    }
+    
 private:
     Display* display = nullptr;
 #elif defined(_WIN32) || defined(_WIN64)
@@ -526,11 +555,66 @@ private:
         GetCursorPos(&pt);
         SetCursorPos(pt.x + deltaX, pt.y + deltaY);
     }
+    
+    void scroll(int amount) {
+        // Windows scroll using mouse_event with MOUSEEVENTF_WHEEL
+        // Positive amount = scroll down (negative wheel delta)
+        // Negative amount = scroll up (positive wheel delta)
+        // Each WHEEL_DELTA unit is 120
+        INPUT input = {0};
+        input.type = INPUT_MOUSE;
+        input.mi.dwFlags = MOUSEEVENTF_WHEEL;
+        input.mi.mouseData = -amount * 120;  // Negative for down scroll
+        SendInput(1, &input, sizeof(INPUT));
+    }
 #else
     void moveRelative(int deltaX, int deltaY) {
         // No-op for unsupported platforms
     }
+    
+    void scroll(int amount) {
+        // No-op for unsupported platforms
+    }
 #endif
+};
+
+// ============================================================================
+// Idle Detection (Platform-Specific)
+// ============================================================================
+
+class IdleDetector {
+public:
+    // Returns milliseconds since last user input (keyboard or mouse)
+    static int64_t getIdleTimeMs() {
+#ifdef __APPLE__
+        // macOS: Use CGEventSource to get seconds since last event
+        CFTimeInterval idleSeconds = CGEventSourceSecondsSinceLastEventType(
+            kCGEventSourceStateHIDSystemState,
+            kCGAnyInputEventType);
+        return static_cast<int64_t>(idleSeconds * 1000);
+        
+#elif defined(_WIN32) || defined(_WIN64)
+        // Windows: Use GetLastInputInfo
+        LASTINPUTINFO lii;
+        lii.cbSize = sizeof(LASTINPUTINFO);
+        if (GetLastInputInfo(&lii)) {
+            DWORD currentTime = GetTickCount();
+            return static_cast<int64_t>(currentTime - lii.dwTime);
+        }
+        return 0;
+        
+#elif defined(__linux__)
+        // Linux: Use XScreenSaverQueryInfo (requires -lXss)
+        // Since we want to avoid extra dependencies, we'll use a simpler approach:
+        // Return 0 if we can't detect (no idle detection on Linux without XScreenSaver)
+        // Alternative: Could parse /proc/interrupts but that's complex
+        // For now, we'll just return 0 (always consider not idle on Linux)
+        // TODO: Add proper X11 idle detection with XScreenSaver extension
+        return 0;
+#else
+        return 0;
+#endif
+    }
 };
 
 // ============================================================================
@@ -909,8 +993,35 @@ int main(int argc, char* argv[]) {
     ws.sendMessage(R"({"type":"ready"})");
     
     TypingEngine engine;
+    MouseSimulator mouseSim;
     std::atomic<bool> shouldStop(false);
     std::atomic<bool> isBusy(false);
+    std::atomic<bool> scrollEnabled(false);  // Enable via command or startup
+    
+    // Idle scroll thread - runs independently
+    std::thread idleScrollThread([&mouseSim, &scrollEnabled]() {
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            
+            if (!scrollEnabled.load()) continue;
+            
+            int64_t idleMs = IdleDetector::getIdleTimeMs();
+            
+            // If idle for more than 30 seconds, scroll
+            if (idleMs >= 30000) {
+                int amount = RandomGenerator::range(TypingConstants::MIN_SCROLL_AMOUNT,
+                                                    TypingConstants::MAX_SCROLL_AMOUNT);
+                
+                // 80% chance to scroll down, 20% to scroll up
+                if (RandomGenerator::uniform() > TypingConstants::SCROLL_DOWN_PROBABILITY) {
+                    amount = -amount;
+                }
+                
+                mouseSim.scroll(amount);
+            }
+        }
+    });
+    idleScrollThread.detach();
 
     std::cout << "Client ready. Waiting for commands from server...\n";
     std::cout << "Press Ctrl+C to exit\n\n";
@@ -987,6 +1098,19 @@ int main(int argc, char* argv[]) {
                     }
                     engine.setMouseMovementEnabled(mouseMovement);
                     std::cout << "Mouse movement: " << (mouseMovement ? "enabled" : "disabled") << "\n";
+                    
+                    // Extract idle scroll setting
+                    size_t scrollPos = message.find("\"idleScroll\":");
+                    if (scrollPos != std::string::npos) {
+                        size_t boolStart = scrollPos + 13;
+                        if (message.substr(boolStart, 4) == "true") {
+                            scrollEnabled.store(true);
+                            std::cout << "Idle scrolling: enabled (30s delay)\n";
+                        } else {
+                            scrollEnabled.store(false);
+                            std::cout << "Idle scrolling: disabled\n";
+                        }
+                    }
 
                     // Reset stop flag and set busy state
                     shouldStop = false;

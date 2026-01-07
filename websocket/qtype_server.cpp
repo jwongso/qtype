@@ -153,6 +153,7 @@ private slots:
         settings["enableAutoCorrection"] = autoCorrectCheck_->isChecked();
         settings["correctionProbability"] = autoCorrectProbSpin_->value();
         settings["mouseMovement"] = mouseCheck_->isChecked();
+        settings["idleScroll"] = scrollCheck_->isChecked();
         
         // Create command
         QJsonObject command;
