@@ -116,6 +116,80 @@ depend:
 	$(CMAKE_COMMAND) -S$(CMAKE_SOURCE_DIR) -B$(CMAKE_BINARY_DIR) --check-build-system CMakeFiles/Makefile.cmake 1
 .PHONY : depend
 
+#=============================================================================
+# Target rules for targets named qtype_server
+
+# Build rule for target.
+qtype_server: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 qtype_server
+.PHONY : qtype_server
+
+# fast build rule for target.
+qtype_server/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/qtype_server.dir/build.make CMakeFiles/qtype_server.dir/build
+.PHONY : qtype_server/fast
+
+#=============================================================================
+# Target rules for targets named qtype_server_autogen
+
+# Build rule for target.
+qtype_server_autogen: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 qtype_server_autogen
+.PHONY : qtype_server_autogen
+
+# fast build rule for target.
+qtype_server_autogen/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/qtype_server_autogen.dir/build.make CMakeFiles/qtype_server_autogen.dir/build
+.PHONY : qtype_server_autogen/fast
+
+qtype_server.o: qtype_server.cpp.o
+.PHONY : qtype_server.o
+
+# target to build an object file
+qtype_server.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/qtype_server.dir/build.make CMakeFiles/qtype_server.dir/qtype_server.cpp.o
+.PHONY : qtype_server.cpp.o
+
+qtype_server.i: qtype_server.cpp.i
+.PHONY : qtype_server.i
+
+# target to preprocess a source file
+qtype_server.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/qtype_server.dir/build.make CMakeFiles/qtype_server.dir/qtype_server.cpp.i
+.PHONY : qtype_server.cpp.i
+
+qtype_server.s: qtype_server.cpp.s
+.PHONY : qtype_server.s
+
+# target to generate assembly for a file
+qtype_server.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/qtype_server.dir/build.make CMakeFiles/qtype_server.dir/qtype_server.cpp.s
+.PHONY : qtype_server.cpp.s
+
+qtype_server_autogen/mocs_compilation.o: qtype_server_autogen/mocs_compilation.cpp.o
+.PHONY : qtype_server_autogen/mocs_compilation.o
+
+# target to build an object file
+qtype_server_autogen/mocs_compilation.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/qtype_server.dir/build.make CMakeFiles/qtype_server.dir/qtype_server_autogen/mocs_compilation.cpp.o
+.PHONY : qtype_server_autogen/mocs_compilation.cpp.o
+
+qtype_server_autogen/mocs_compilation.i: qtype_server_autogen/mocs_compilation.cpp.i
+.PHONY : qtype_server_autogen/mocs_compilation.i
+
+# target to preprocess a source file
+qtype_server_autogen/mocs_compilation.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/qtype_server.dir/build.make CMakeFiles/qtype_server.dir/qtype_server_autogen/mocs_compilation.cpp.i
+.PHONY : qtype_server_autogen/mocs_compilation.cpp.i
+
+qtype_server_autogen/mocs_compilation.s: qtype_server_autogen/mocs_compilation.cpp.s
+.PHONY : qtype_server_autogen/mocs_compilation.s
+
+# target to generate assembly for a file
+qtype_server_autogen/mocs_compilation.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/qtype_server.dir/build.make CMakeFiles/qtype_server.dir/qtype_server_autogen/mocs_compilation.cpp.s
+.PHONY : qtype_server_autogen/mocs_compilation.cpp.s
+
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -124,6 +198,14 @@ help:
 	@echo "... depend"
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
+	@echo "... qtype_server_autogen"
+	@echo "... qtype_server"
+	@echo "... qtype_server.o"
+	@echo "... qtype_server.i"
+	@echo "... qtype_server.s"
+	@echo "... qtype_server_autogen/mocs_compilation.o"
+	@echo "... qtype_server_autogen/mocs_compilation.i"
+	@echo "... qtype_server_autogen/mocs_compilation.s"
 .PHONY : help
 
 

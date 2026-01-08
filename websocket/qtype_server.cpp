@@ -332,6 +332,15 @@ private:
         mouseLayout->addWidget(mouseCheck_);
         mainLayout->addWidget(mouseGroup);
         
+        // Idle scroll option
+        QGroupBox *scrollGroup = new QGroupBox("Idle Scrolling", this);
+        QHBoxLayout *scrollLayout = new QHBoxLayout(scrollGroup);
+        scrollCheck_ = new QCheckBox("Enable idle scrolling (screensaver-like)", this);
+        scrollCheck_->setChecked(false);
+        scrollCheck_->setToolTip("Scrolls automatically after 30 seconds of keyboard/mouse inactivity");
+        scrollLayout->addWidget(scrollCheck_);
+        mainLayout->addWidget(scrollGroup);
+        
         // Text edit
         textEdit_ = new QPlainTextEdit(this);
         textEdit_->setPlaceholderText("Paste your text here... It will be sent to the selected client for typing.");
@@ -452,6 +461,7 @@ private:
     QSpinBox *autoCorrectProbSpin_ = nullptr;
     
     QCheckBox *mouseCheck_ = nullptr;
+    QCheckBox *scrollCheck_ = nullptr;
 };
 
 int main(int argc, char *argv[]) {

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build script for qtype project
 # Usage: ./build_all.sh [platform]
-#   platform: linux, windows, macos, all (default: all)
+#   platform: linux, windows, macos, all, clean (default: all)
 
 set -e  # Exit on error
 
@@ -44,7 +44,7 @@ build_linux() {
     if [ -f "CMakeLists.txt" ]; then
         mkdir -p build_server
         cd build_server
-        cmake .. -DCMAKE_BUILD_TYPE=Release 2>/dev/null || true
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SERVER=ON -DBUILD_CLIENT=OFF 2>/dev/null || true
         make qtype_server 2>/dev/null || true
         if [ -f "qtype_server" ]; then
             cp qtype_server "$BINARY_DIR/qtype_server-linux-x64"
@@ -130,8 +130,8 @@ build_macos() {
     if [ -f "CMakeLists.txt" ]; then
         mkdir -p build_server
         cd build_server
-        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$(brew --prefix qt@6) 2>/dev/null || \
-        cmake .. -DCMAKE_BUILD_TYPE=Release 2>/dev/null || true
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SERVER=ON -DBUILD_CLIENT=OFF -DCMAKE_PREFIX_PATH=$(brew --prefix qt@6) 2>/dev/null || \
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SERVER=ON -DBUILD_CLIENT=OFF 2>/dev/null || true
         make qtype_server 2>/dev/null || true
         if [ -f "qtype_server" ]; then
             cp qtype_server "$BINARY_DIR/qtype_server-macos-x64"
@@ -151,6 +151,53 @@ build_macos() {
     echo -e "${GREEN}✓ qtype_client-macos-x64 built successfully${NC}"
 }
 
+clean_all() {
+    echo -e "${YELLOW}Cleaning all build artifacts...${NC}"
+    
+    # Clean main build directory
+    if [ -d "$SCRIPT_DIR/build" ]; then
+        echo "Removing build/"
+        rm -rf "$SCRIPT_DIR/build"
+    fi
+    
+    # Clean websocket build directory
+    if [ -d "$SCRIPT_DIR/websocket/build_server" ]; then
+        echo "Removing websocket/build_server/"
+        rm -rf "$SCRIPT_DIR/websocket/build_server"
+    fi
+    
+    # Clean qmake generated files (macOS)
+    if [ -f "$SCRIPT_DIR/Makefile" ]; then
+        echo "Removing Makefile"
+        rm -f "$SCRIPT_DIR/Makefile"
+    fi
+    if [ -f "$SCRIPT_DIR/.qmake.stash" ]; then
+        rm -f "$SCRIPT_DIR/.qmake.stash"
+    fi
+    if [ -d "$SCRIPT_DIR/qtype.app" ]; then
+        echo "Removing qtype.app/"
+        rm -rf "$SCRIPT_DIR/qtype.app"
+    fi
+    
+    # Clean object files and temporary files
+    find "$SCRIPT_DIR" -name "*.o" -delete 2>/dev/null || true
+    find "$SCRIPT_DIR" -name "*.d" -delete 2>/dev/null || true
+    find "$SCRIPT_DIR" -name "moc_*" -delete 2>/dev/null || true
+    
+    # Clean binary directory (optional - ask user)
+    if [ -d "$BINARY_DIR" ]; then
+        echo -e "${YELLOW}Remove binaries in $BINARY_DIR? [y/N]${NC}"
+        read -r response
+        if [[ "$response" =~ ^[Yy]$ ]]; then
+            echo "Removing binary/"
+            rm -rf "$BINARY_DIR"
+            mkdir -p "$BINARY_DIR"
+        fi
+    fi
+    
+    echo -e "${GREEN}✓ Clean complete${NC}"
+}
+
 # Main build logic
 case "$PLATFORM" in
     linux)
@@ -161,6 +208,9 @@ case "$PLATFORM" in
         ;;
     macos)
         build_macos
+        ;;
+    clean)
+        clean_all
         ;;
     all)
         if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -177,12 +227,15 @@ case "$PLATFORM" in
         ;;
     *)
         echo -e "${RED}Error: Unknown platform '$PLATFORM'${NC}"
-        echo "Usage: $0 [linux|windows|macos|all]"
+        echo "Usage: $0 [linux|windows|macos|clean|all]"
         exit 1
         ;;
 esac
 
-echo ""
-echo -e "${GREEN}=== Build Complete ===${NC}"
-echo "Binaries are in: $BINARY_DIR"
-ls -lh "$BINARY_DIR" | grep -v "^total" | grep -v "README.md"
+# Only show summary if not cleaning
+if [ "$PLATFORM" != "clean" ]; then
+    echo ""
+    echo -e "${GREEN}=== Build Complete ===${NC}"
+    echo "Binaries are in: $BINARY_DIR"
+    ls -lh "$BINARY_DIR" | grep -v "^total" | grep -v "README.md"
+fi
