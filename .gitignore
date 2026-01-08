@@ -1,1 +1,9 @@
 /build
+/websocket/build_server
+*.o
+*.d
+moc_*
+.qmake.stash
+Makefile
+qtype.app/
+test_idle
