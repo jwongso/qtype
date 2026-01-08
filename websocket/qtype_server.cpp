@@ -21,6 +21,7 @@
 #include <QJsonArray>
 #include <QTimer>
 #include <QNetworkInterface>
+#include <QMessageBox>
 
 class QTypeServer : public QMainWindow {
     Q_OBJECT
@@ -137,6 +138,43 @@ private slots:
         if (text.isEmpty()) {
             statusLabel_->setText("Error: No text to type!");
             return;
+        }
+        
+        // Check for non-ASCII characters
+        QString problematicChars;
+        int nonAsciiCount = 0;
+        for (const QChar &c : text) {
+            if (c.unicode() >= 128) {
+                nonAsciiCount++;
+                if (problematicChars.length() < 50) {  // Limit preview length
+                    if (!problematicChars.contains(c)) {
+                        problematicChars.append(c);
+                    }
+                }
+            }
+        }
+        
+        // Show warning dialog if non-ASCII characters found
+        if (nonAsciiCount > 0) {
+            QMessageBox msgBox(this);
+            msgBox.setIcon(QMessageBox::Warning);
+            msgBox.setWindowTitle("Non-ASCII Characters Detected");
+            msgBox.setText(QString("⚠️ WARNING: Found %1 non-ASCII character(s)").arg(nonAsciiCount));
+            msgBox.setInformativeText(
+                QString("Characters: [%1]\n\n"
+                        "These characters may:\n"
+                        "• Be skipped by the client\n"
+                        "• Cause typing detection\n"
+                        "• Not work on target keyboards\n\n"
+                        "Do you want to continue?").arg(problematicChars)
+            );
+            msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+            msgBox.setDefaultButton(QMessageBox::No);
+            
+            if (msgBox.exec() == QMessageBox::No) {
+                statusLabel_->setText("Typing cancelled by user");
+                return;
+            }
         }
         
         // Get settings
