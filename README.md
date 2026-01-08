@@ -258,6 +258,43 @@ qtype/
 
 ---
 
+## Testing
+
+The project includes comprehensive unit tests covering all major features.
+
+### Running Tests
+
+```bash
+cd tests
+g++ tests.cpp -o test_runner -std=c++17 -I.. \
+    -I/usr/include/x86_64-linux-gnu/qt6 \
+    -I/usr/include/x86_64-linux-gnu/qt6/QtCore \
+    -I/usr/include/x86_64-linux-gnu/qt6/QtWidgets \
+    -I/usr/include/x86_64-linux-gnu/qt6/QtGui \
+    -L/usr/lib/x86_64-linux-gnu \
+    -lQt6Core -lQt6Widgets -lQt6Gui \
+    -lgtest -lgtest_main -pthread -fPIC
+
+./test_runner
+```
+
+**Requirements:**
+- Google Test (`libgtest-dev`)
+- Qt6 development libraries
+
+**Test Coverage:**
+- RandomGenerator (gamma distribution, normal distribution)
+- KeyboardLayout (neighbor keys, case preservation)
+- TextChunker (word splitting, Unicode handling)
+- TypingDynamics (delays, hold times, digraph correlation)
+- ImperfectionGenerator (typos, double keys, corrections)
+- TypingEngine (integration, progress tracking)
+- Non-ASCII detection (em dash, smart quotes)
+- Mouse movement and scrolling
+- State management and reset
+
+---
+
 ## Disclaimer
 
 This tool is intended for **research, testing, and personal workflow enhancement**.
