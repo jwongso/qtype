@@ -163,7 +163,7 @@ public:
     TypingDynamics(const TimingProfile& profile, const DelayRange& delays);
     
     void reset();
-    void updateState(QChar currentChar, bool isNewWord);
+    void updateState(QChar currentChar);
     
     int calculateDelay(QChar ch, bool isSentenceEnd, bool isBurst, bool isThinkingPause);
     int generateHoldTime(QChar ch);
