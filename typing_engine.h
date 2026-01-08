@@ -573,7 +573,7 @@ inline void TypingDynamics::reset() {
     totalCharsTyped_ = 0;
 }
 
-inline void TypingDynamics::updateState(QChar currentChar, bool isNewWord) {
+inline void TypingDynamics::updateState(QChar currentChar) {
     previousChar_ = currentChar;
     totalCharsTyped_++;
     
@@ -1086,10 +1086,9 @@ inline int TypingEngine::typeNextChunk() {
             simulator_->typeCharacter(originalChar, corrHold);
         }
         
-        bool isNewWord = originalChar.isSpace();
-        if (isNewWord) wordsSinceBreak_++;
+        if (originalChar.isSpace()) wordsSinceBreak_++;
         
-        dynamics_->updateState(originalChar, isNewWord);
+        dynamics_->updateState(originalChar);
     }
     
     QChar lastChar = chunk.back();
