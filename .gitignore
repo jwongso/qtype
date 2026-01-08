@@ -3,6 +3,7 @@
 *.o
 *.d
 moc_*
+main.moc
 .qmake.stash
 Makefile
 qtype.app/
